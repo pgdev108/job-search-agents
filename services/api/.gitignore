@@ -25,9 +25,10 @@ htmlcov/
 .env.*.local
 !env.example
 
-# IDE
+# IDE / Editor
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 

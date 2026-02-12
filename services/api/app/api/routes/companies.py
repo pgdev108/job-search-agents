@@ -1,5 +1,5 @@
 """Companies API routes."""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from math import ceil
 
@@ -17,7 +17,7 @@ async def list_companies(
     universe: str | None = Query(None, description="Filter by universe (exact match)"),
     sort: str = Query("name_asc", description="Sort order: name_asc, job_count_desc, last_scraped_at_desc"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(25, ge=1, le=100, description="Items per page (max 100)"),
+    page_size: int = Query(25, ge=1, le=500, description="Items per page (max 500)"),
     db: AsyncSession = Depends(get_db),
 ):
     """List companies with filtering, sorting, and pagination."""
@@ -50,6 +50,18 @@ async def list_companies(
         total=total,
         total_pages=total_pages,
     )
+
+
+@router.get("/companies/{ticker}", response_model=CompanyOut)
+async def get_company_by_ticker(
+    ticker: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single company by ticker (for detail page)."""
+    company = await company_repo.get_company_by_ticker(db, ticker)
+    if not company:
+        raise HTTPException(status_code=404, detail=f"Company with ticker '{ticker}' not found")
+    return CompanyOut.model_validate(company)
 
 
 @router.get("/sectors", response_model=list[str])

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import health, companies, admin
+from app.api.routes import health, companies, admin, scrape, bulk_scrape
 from app.db.init_db import init_db
 
 
@@ -38,4 +38,6 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(companies.router, tags=["companies"])
 app.include_router(admin.router, tags=["admin"])
+app.include_router(scrape.router)
+app.include_router(bulk_scrape.router)
 

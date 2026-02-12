@@ -8,12 +8,53 @@ from sqlalchemy import select, text, inspect
 from app.db.base import Base
 from app.db.session import engine, AsyncSessionLocal
 from app.models.company import Company
+from app.models.scrape_event import CompanyScrapeEvent
+from app.models.scrape_run import ScrapeRun
 
 
 async def create_tables():
     """Create all database tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def migrate_company_scrape_columns():
+    """Add career_page_source and job_count_extraction_method if missing."""
+    async with engine.begin() as conn:
+        for col_name in ("career_page_source", "job_count_extraction_method"):
+            try:
+                await conn.execute(text(f"ALTER TABLE companies ADD COLUMN {col_name} TEXT"))
+            except Exception:
+                pass
+
+
+async def migrate_hq_city_state_columns():
+    """Add hq_city and hq_state to companies."""
+    async with engine.begin() as conn:
+        for col_name in ("hq_city", "hq_state"):
+            try:
+                await conn.execute(text(f"ALTER TABLE companies ADD COLUMN {col_name} TEXT"))
+            except Exception:
+                pass
+
+
+async def migrate_scrape_run_columns():
+    """Add run_id to company_scrape_events and last_run_id to companies."""
+    async with engine.begin() as conn:
+        # company_scrape_events.run_id
+        try:
+            await conn.execute(text("ALTER TABLE company_scrape_events ADD COLUMN run_id INTEGER"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scrape_event_run ON company_scrape_events(run_id)"))
+        except Exception:
+            pass
+        # companies.last_run_id
+        try:
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN last_run_id INTEGER"))
+        except Exception:
+            pass
 
 
 async def migrate_add_universe_column():
@@ -120,11 +161,14 @@ async def init_db():
     db_path = Path(__file__).parent.parent.parent / "data"
     db_path.mkdir(exist_ok=True)
     
-    # Create tables
+    # Create tables (includes company_scrape_events via Base.metadata)
     await create_tables()
     
     # Run migrations
     await migrate_add_universe_column()
+    await migrate_company_scrape_columns()
+    await migrate_hq_city_state_columns()
+    await migrate_scrape_run_columns()
     
     # Seed tiny sample if table is empty (only for offline testing)
     await seed_companies()

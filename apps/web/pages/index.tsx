@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getCompanies, getSectors, getUniverses, seedSp500, Company, CompanyListParams } from '../lib/api'
+import Link from 'next/link'
+import { getCompanies, getSectors, getUniverses, seedSp500, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -11,6 +12,11 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [seedMessage, setSeedMessage] = useState<string | null>(null)
   const [seeding, setSeeding] = useState(false)
+  const [refreshingTicker, setRefreshingTicker] = useState<string | null>(null)
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const [bulkRunId, setBulkRunId] = useState<number | null>(null)
+  const [bulkRunProgress, setBulkRunProgress] = useState<ScrapeRunDetail | null>(null)
+  const [runs, setRuns] = useState<ScrapeRun[]>([])
   
   // Filter and pagination state
   const [search, setSearch] = useState('')
@@ -18,29 +24,53 @@ export default function Home() {
   const [selectedUniverse, setSelectedUniverse] = useState<string>('')
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc')
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(25)
+  const [pageSize, setPageSize] = useState(25)
   const [totalPages, setTotalPages] = useState(0)
   const [total, setTotal] = useState(0)
   
   // Debounced search
   const [searchInput, setSearchInput] = useState('')
 
-  // Load sectors and universes on mount
+  // Load sectors, universes, and runs on mount
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [sectorsData, universesData] = await Promise.all([
+        const [sectorsData, universesData, runsData] = await Promise.all([
           getSectors(),
           getUniverses(),
+          getScrapeRuns({ page_size: 5 }).catch(() => []),
         ])
         setSectors(sectorsData)
         setUniverses(universesData)
+        setRuns(runsData)
       } catch (err) {
         console.error('Failed to load filters:', err)
       }
     }
     loadFilters()
   }, [])
+
+  // Poll running bulk run progress (every 4s) and refresh runs list when done
+  useEffect(() => {
+    if (bulkRunId == null) return
+    const t = setInterval(async () => {
+      try {
+        const detail = await getScrapeRun(bulkRunId)
+        setBulkRunProgress(detail)
+        if (detail.status !== 'running') {
+          setBulkRunning(false)
+          setBulkRunId(null)
+          setBulkRunProgress(null)
+          const runsData = await getScrapeRuns({ page_size: 5 })
+          setRuns(runsData)
+        }
+      } catch {
+        setBulkRunId(null)
+        setBulkRunProgress(null)
+      }
+    }, 4000)
+    return () => clearInterval(t)
+  }, [bulkRunId])
 
   // Debounce search input
   useEffect(() => {
@@ -102,7 +132,13 @@ export default function Home() {
 
   const handleUniverseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedUniverse(e.target.value)
-    setPage(1) // Reset to first page on filter change
+    setPage(1)
+  }
+
+  const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500] as const
+  const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(e.target.value))
+    setPage(1)
   }
 
   const handleSeedSp500 = async () => {
@@ -157,12 +193,50 @@ export default function Home() {
       return <span style={{ color: '#666' }}>Not scraped</span>
     }
     if (company.last_scrape_status === 'success') {
-      return <span style={{ color: 'green' }}>✓ Success</span>
+      return <span style={{ color: 'green', fontWeight: 600 }}>✓ Success</span>
     }
-    if (company.last_scrape_status === 'error') {
-      return <span style={{ color: 'red' }}>✗ Error</span>
+    if (company.last_scrape_status === 'failed') {
+      return <span style={{ color: '#c00', fontWeight: 600 }}>✗ Failed</span>
+    }
+    if (company.last_scrape_status === 'blocked') {
+      return <span style={{ color: '#b8860b', fontWeight: 600 }}>Blocked</span>
+    }
+    if (company.last_scrape_status === 'not_found') {
+      return <span style={{ color: '#666', fontWeight: 600 }}>Not found</span>
     }
     return <span style={{ color: '#666' }}>{company.last_scrape_status}</span>
+  }
+
+  const handleRefresh = async (ticker: string) => {
+    setRefreshingTicker(ticker)
+    try {
+      const result = await postScrapeCompany(ticker)
+      setCompanies((prev) =>
+        prev.map((c) => (c.ticker === ticker ? result.company : c))
+      )
+    } catch (err) {
+      console.error('Refresh failed:', err)
+      alert(err instanceof Error ? err.message : 'Refresh failed')
+    } finally {
+      setRefreshingTicker(null)
+    }
+  }
+
+  const handleRefreshAll = async () => {
+    const universe = selectedUniverse || 'sp500'
+    if (!confirm(`Start bulk refresh for universe "${universe}"? This may take a while.`)) return
+    setBulkRunning(true)
+    setBulkRunId(null)
+    setError(null)
+    try {
+      const run = await postScrapeAll({ universe })
+      setBulkRunId(run.id)
+      setBulkRunProgress({ ...run, processed: 0, remaining: run.total_companies, percent_complete: 0 })
+      setRuns((prev) => [run, ...prev.slice(0, 4)])
+    } catch (err) {
+      setBulkRunning(false)
+      setError(err instanceof Error ? err.message : 'Bulk scrape failed')
+    }
   }
 
   return (
@@ -172,25 +246,53 @@ export default function Home() {
       maxWidth: '1400px',
       margin: '0 auto'
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <h1 style={{ margin: 0 }}>Job Search Agent - Companies</h1>
-        <button
-          onClick={handleSeedSp500}
-          disabled={seeding}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: seeding ? '#ccc' : '#0066cc',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: seeding ? 'not-allowed' : 'pointer',
-            fontSize: '1rem',
-            fontWeight: 'bold'
-          }}
-        >
-          {seeding ? 'Seeding...' : 'Seed S&P 500'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <Link href="/runs" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Scrape Runs</Link>
+          <button
+            onClick={handleRefreshAll}
+            disabled={bulkRunning}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: bulkRunning ? '#ccc' : '#059669',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: bulkRunning ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}
+          >
+            {bulkRunning ? 'Bulk running...' : 'Refresh All (Universe)'}
+          </button>
+          <button
+            onClick={handleSeedSp500}
+            disabled={seeding}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: seeding ? '#ccc' : '#0066cc',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: seeding ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}
+          >
+            {seeding ? 'Seeding...' : 'Seed S&P 500'}
+          </button>
+        </div>
       </div>
+
+      {/* Bulk run progress banner */}
+      {bulkRunProgress && bulkRunProgress.status === 'running' && (
+        <div style={{ padding: '0.75rem 1rem', backgroundColor: '#e0f2fe', border: '1px solid #0ea5e9', borderRadius: '4px', marginBottom: '1rem' }}>
+          <strong>Bulk refresh running:</strong> {bulkRunProgress.percent_complete.toFixed(0)}% complete
+          ({bulkRunProgress.processed} / {bulkRunProgress.total_companies}) —{' '}
+          <Link href={`/runs/${bulkRunProgress.id}`} style={{ color: '#0369a1', fontWeight: 600 }}>View run</Link>
+        </div>
+      )}
 
       {/* Seed success message */}
       {seedMessage && (
@@ -301,7 +403,41 @@ export default function Home() {
             <option value="last_scraped_at_desc">Last Scraped (Recent First)</option>
           </select>
         </div>
+
+        <div style={{ minWidth: '120px' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+            Per page
+          </label>
+          <select
+            value={pageSize}
+            onChange={handlePageSizeChange}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              fontSize: '1rem'
+            }}
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
       </div>
+
+      {/* Recent scrape runs */}
+      {runs.length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+          <strong>Recent runs:</strong>{' '}
+          {runs.slice(0, 5).map((r) => (
+            <span key={r.id} style={{ marginRight: '1rem' }}>
+              <Link href={`/runs/${r.id}`} style={{ color: '#0066cc' }}>#{r.id}</Link>
+              {' '}{r.status}{' '}({r.success_count + r.failed_count + r.blocked_count + r.not_found_count}/{r.total_companies})
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Results count */}
       <div style={{ marginBottom: '1rem', color: '#666' }}>
@@ -343,17 +479,19 @@ export default function Home() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Company</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Sector</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Universe</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ Location</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ City</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ State</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Career Page</th>
                   <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Job Count</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Status</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scraped</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {companies.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                    <td colSpan={10} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
                       No companies found
                     </td>
                   </tr>
@@ -362,7 +500,9 @@ export default function Home() {
                     <tr key={company.id} style={{ borderBottom: '1px solid #ddd' }}>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         <div>
-                          <strong>{company.name}</strong>
+                          <Link href={`/company/${company.ticker}`} style={{ color: '#0066cc', fontWeight: 600 }}>
+                            {company.name}
+                          </Link>
                         </div>
                         <div style={{ fontSize: '0.875rem', color: '#666' }}>
                           {company.ticker}
@@ -375,7 +515,10 @@ export default function Home() {
                         {company.universe || '-'}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
-                        {company.hq_location || '-'}
+                        {company.hq_city ?? company.hq_location ?? '-'}
+                      </td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
+                        {company.hq_state ?? '-'}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {company.career_page_url ? (
@@ -400,6 +543,24 @@ export default function Home() {
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {formatDate(company.last_scraped_at)}
                       </td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRefresh(company.ticker)}
+                          disabled={refreshingTicker === company.ticker}
+                          style={{
+                            padding: '0.35rem 0.75rem',
+                            fontSize: '0.875rem',
+                            backgroundColor: refreshingTicker === company.ticker ? '#e0e0e0' : '#0066cc',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: refreshingTicker === company.ticker ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {refreshingTicker === company.ticker ? 'Refreshing...' : 'Refresh'}
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -407,14 +568,29 @@ export default function Home() {
             </table>
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginTop: '1rem'
-            }}>
+          {/* Pagination + Per page */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '1rem',
+            flexWrap: 'wrap',
+            gap: '0.75rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <label style={{ color: '#666', fontSize: '0.9rem' }}>Per page:</label>
+              <select
+                value={pageSize}
+                onChange={handlePageSizeChange}
+                style={{ padding: '0.35rem 0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.9rem' }}
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            {totalPages > 1 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
@@ -448,8 +624,9 @@ export default function Home() {
               >
                 Next
               </button>
-            </div>
-          )}
+              </div>
+            ) : null}
+          </div>
         </>
       )}
     </div>

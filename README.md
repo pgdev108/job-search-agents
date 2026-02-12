@@ -67,6 +67,18 @@ Or use uv's run command directly (which handles the venv automatically):
 uv sync
 ```
 
+Install Playwright browsers (required for job count extraction). From `services/api`, use the project’s Python via uv (or `python3` if you’re not using uv):
+
+```bash
+uv run python -m playwright install chromium
+```
+
+If `python` isn’t on your PATH, use:
+
+```bash
+python3 -m playwright install chromium
+```
+
 Copy the environment example file:
 
 ```bash

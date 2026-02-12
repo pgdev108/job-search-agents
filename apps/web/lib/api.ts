@@ -11,15 +11,25 @@ export interface Company {
   sector: string | null;
   industry: string | null;
   hq_location: string | null;
+  hq_city?: string | null;
+  hq_state?: string | null;
   country: string | null;
   career_page_url: string | null;
+  career_page_source?: string | null;
   job_count: number | null;
+  job_count_extraction_method?: string | null;
   last_scraped_at: string | null;
   last_scrape_status: string | null;
   last_scrape_error: string | null;
   universe: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface CompanyScrapeResponse {
+  company: Company;
+  discovery?: { career_page_url: string; confidence: number; alternate_urls: string[]; notes: string } | null;
+  job_count?: { job_count: number | null; method: string; evidence: string; status: string; error: string } | null;
 }
 
 export interface CompanyListParams {
@@ -122,6 +132,137 @@ export async function seedSp500(): Promise<SeedResult> {
     throw new Error(`Failed to seed S&P 500: ${response.statusText}`);
   }
 
+  return response.json();
+}
+
+/**
+ * Get a single company by ticker (for detail page).
+ */
+export async function getCompany(ticker: string): Promise<Company> {
+  const url = `${API_BASE_URL}/companies/${encodeURIComponent(ticker)}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Company '${ticker}' not found`);
+    }
+    throw new Error(`Failed to fetch company: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Run career page discovery + job count extraction for one company (Refresh).
+ */
+export async function postScrapeCompany(ticker: string): Promise<CompanyScrapeResponse> {
+  const url = `${API_BASE_URL}/scrape/company/${encodeURIComponent(ticker)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const body = JSON.parse(text);
+      if (body.detail) message = typeof body.detail === 'string' ? body.detail : body.detail.join?.(' ') || message;
+    } catch {
+      if (text) message = text.slice(0, 200);
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+// --- Bulk scrape (Phase 4) ---
+
+export interface ScrapeRun {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  universe: string | null;
+  total_companies: number;
+  success_count: number;
+  failed_count: number;
+  blocked_count: number;
+  not_found_count: number;
+  last_error: string | null;
+}
+
+export interface ScrapeRunDetail extends ScrapeRun {
+  processed: number;
+  remaining: number;
+  percent_complete: number;
+}
+
+export interface ScrapeAllParams {
+  universe?: string;
+  tickers?: string[];
+}
+
+/**
+ * Start a bulk scrape run. Returns immediately with run summary. 409 if already running.
+ */
+export async function postScrapeAll(params: ScrapeAllParams = {}): Promise<ScrapeRun> {
+  const url = `${API_BASE_URL}/scrape/all`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const body = JSON.parse(text);
+      if (body.detail) message = typeof body.detail === 'string' ? body.detail : body.detail.join?.(' ') || message;
+    } catch {
+      if (text) message = text.slice(0, 300);
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+/**
+ * List recent scrape runs.
+ */
+export async function getScrapeRuns(params: { status?: string; universe?: string; page?: number; page_size?: number } = {}): Promise<ScrapeRun[]> {
+  const searchParams = new URLSearchParams();
+  if (params.status) searchParams.append('status', params.status);
+  if (params.universe) searchParams.append('universe', params.universe);
+  if (params.page) searchParams.append('page', params.page.toString());
+  if (params.page_size) searchParams.append('page_size', params.page_size.toString());
+  const url = `${API_BASE_URL}/scrape/runs?${searchParams.toString()}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch runs: ${response.statusText}`);
+  return response.json();
+}
+
+/**
+ * Get run detail with progress.
+ */
+export async function getScrapeRun(runId: number): Promise<ScrapeRunDetail> {
+  const url = `${API_BASE_URL}/scrape/runs/${runId}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    if (response.status === 404) throw new Error('Run not found');
+    throw new Error(`Failed to fetch run: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get companies touched by this run.
+ */
+export async function getScrapeRunCompanies(runId: number): Promise<Company[]> {
+  const url = `${API_BASE_URL}/scrape/runs/${runId}/companies`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch run companies: ${response.statusText}`);
   return response.json();
 }
 

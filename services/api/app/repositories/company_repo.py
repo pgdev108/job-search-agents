@@ -71,6 +71,41 @@ async def list_companies(
     return list(companies), total
 
 
+async def get_tickers_for_bulk(
+    session: AsyncSession,
+    universe: str | None = None,
+    tickers: list[str] | None = None,
+    limit: int = 6000,
+) -> list[str]:
+    """
+    Get list of tickers for bulk scrape.
+    If tickers provided, return those (up to limit). Else if universe, return all in universe. Else all.
+    """
+    if tickers:
+        # Dedupe and limit
+        seen = set()
+        out = []
+        for t in tickers:
+            t = t.strip().upper()
+            if t and t not in seen and len(out) < limit:
+                seen.add(t)
+                out.append(t)
+        return out
+    query = select(Company.ticker).order_by(Company.ticker)
+    if universe:
+        query = query.where(Company.universe == universe)
+    query = query.limit(limit)
+    result = await session.execute(query)
+    return [row[0] for row in result.all()]
+
+
+async def get_company_by_ticker(session: AsyncSession, ticker: str) -> Company | None:
+    """Get a single company by ticker (case-insensitive)."""
+    query = select(Company).where(func.lower(Company.ticker) == ticker.strip().lower())
+    result = await session.execute(query)
+    return result.scalar_one_or_none()
+
+
 async def get_sectors(session: AsyncSession) -> list[str]:
     """Get distinct sectors from companies."""
     query = select(Company.sector).distinct().where(Company.sector.isnot(None)).order_by(Company.sector)
