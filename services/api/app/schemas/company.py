@@ -37,3 +37,9 @@ class CompanyListOut(BaseModel):
     total: int = Field(ge=0)
     total_pages: int = Field(ge=0)
 
+
+class CityCountOut(BaseModel):
+    """City name and company count for filter dropdown."""
+    city: str
+    count: int
+

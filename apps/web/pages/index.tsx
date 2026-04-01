@@ -2,16 +2,19 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { getCompanies, getSectors, getUniverses, seedSp500, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
+import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [sectors, setSectors] = useState<string[]>([])
   const [universes, setUniverses] = useState<string[]>([])
+  const [lastScrapeStatuses, setLastScrapeStatuses] = useState<string[]>([])
+  const [states, setStates] = useState<string[]>([])
+  const [cities, setCities] = useState<{ city: string; count: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [seedMessage, setSeedMessage] = useState<string | null>(null)
-  const [seeding, setSeeding] = useState(false)
+  const [seeding, setSeeding] = useState<'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000' | null>(null)
   const [refreshingTicker, setRefreshingTicker] = useState<string | null>(null)
   const [bulkRunning, setBulkRunning] = useState(false)
   const [bulkRunId, setBulkRunId] = useState<number | null>(null)
@@ -22,6 +25,9 @@ export default function Home() {
   const [search, setSearch] = useState('')
   const [selectedSector, setSelectedSector] = useState<string>('')
   const [selectedUniverse, setSelectedUniverse] = useState<string>('')
+  const [selectedLastScrapeStatus, setSelectedLastScrapeStatus] = useState<string>('')
+  const [selectedState, setSelectedState] = useState<string>('')
+  const [selectedCity, setSelectedCity] = useState<string>('')
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -31,17 +37,34 @@ export default function Home() {
   // Debounced search
   const [searchInput, setSearchInput] = useState('')
 
+  // Load cities when state is selected (and clear when state is cleared)
+  useEffect(() => {
+    if (!selectedState) {
+      setCities([])
+      setSelectedCity('')
+      return
+    }
+    getCitiesByState(selectedState)
+      .then(setCities)
+      .catch(() => setCities([]))
+    setSelectedCity('')
+  }, [selectedState])
+
   // Load sectors, universes, and runs on mount
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [sectorsData, universesData, runsData] = await Promise.all([
+        const [sectorsData, universesData, statusesData, statesData, runsData] = await Promise.all([
           getSectors(),
           getUniverses(),
+          getLastScrapeStatuses().catch(() => []),
+          getStates().catch(() => []),
           getScrapeRuns({ page_size: 5 }).catch(() => []),
         ])
         setSectors(sectorsData)
         setUniverses(universesData)
+        setLastScrapeStatuses(statusesData)
+        setStates(statesData)
         setRuns(runsData)
       } catch (err) {
         console.error('Failed to load filters:', err)
@@ -104,7 +127,16 @@ export default function Home() {
         if (selectedUniverse) {
           params.universe = selectedUniverse
         }
-        
+        if (selectedLastScrapeStatus) {
+          params.last_scrape_status = selectedLastScrapeStatus
+        }
+        if (selectedState) {
+          params.state = selectedState
+        }
+        if (selectedCity) {
+          params.city = selectedCity
+        }
+
         const data = await getCompanies(params)
         setCompanies(data.items)
         setTotalPages(data.total_pages)
@@ -118,7 +150,7 @@ export default function Home() {
     }
 
     loadCompanies()
-  }, [search, selectedSector, selectedUniverse, sort, page, pageSize])
+  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, sort, page, pageSize])
 
   const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedSector(e.target.value)
@@ -135,24 +167,45 @@ export default function Home() {
     setPage(1)
   }
 
+  const handleLastScrapeStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedLastScrapeStatus(e.target.value)
+    setPage(1)
+  }
+
+  const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedState(e.target.value)
+    setSelectedCity('')
+    setPage(1)
+  }
+
+  const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedCity(e.target.value)
+    setPage(1)
+  }
+
   const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500] as const
   const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setPageSize(Number(e.target.value))
     setPage(1)
   }
 
-  const handleSeedSp500 = async () => {
-    setSeeding(true)
+  const seedLabels: Record<'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000', string> = {
+    sp500: 'S&P 500',
+    dow_jones: 'Dow Jones',
+    nasdaq100: 'Nasdaq 100',
+    russell2000: 'Russell 2000',
+  }
+
+  const handleSeed = async (source: 'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000') => {
+    setSeeding(source)
     setSeedMessage(null)
     setError(null)
-    
+    const label = seedLabels[source]
     try {
-      const result = await seedSp500()
+      const result = await seedIndex(source)
       setSeedMessage(
-        `S&P 500 seeded successfully! Inserted: ${result.inserted}, Updated: ${result.updated}, Total: ${result.total}`
+        `${label} seeded successfully! Inserted: ${result.inserted}, Updated: ${result.updated}, Total: ${result.total}`
       )
-      
-      // Reload universes and companies
       const [universesData] = await Promise.all([
         getUniverses(),
         getCompanies({
@@ -162,6 +215,9 @@ export default function Home() {
           ...(search && { search }),
           ...(selectedSector && { sector: selectedSector }),
           ...(selectedUniverse && { universe: selectedUniverse }),
+          ...(selectedLastScrapeStatus && { last_scrape_status: selectedLastScrapeStatus }),
+          ...(selectedState && { state: selectedState }),
+          ...(selectedCity && { city: selectedCity }),
         }).then(data => {
           setCompanies(data.items)
           setTotalPages(data.total_pages)
@@ -169,13 +225,11 @@ export default function Home() {
         }),
       ])
       setUniverses(universesData)
-      
-      // Clear message after 5 seconds
       setTimeout(() => setSeedMessage(null), 5000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to seed S&P 500')
+      setError(err instanceof Error ? err.message : `Failed to seed ${label}`)
     } finally {
-      setSeeding(false)
+      setSeeding(null)
     }
   }
 
@@ -239,6 +293,23 @@ export default function Home() {
     }
   }
 
+  const handleRefreshFailed = async () => {
+    const universe = selectedUniverse || 'sp500'
+    if (!confirm(`Refresh only failed/non-success companies for universe "${universe}"?`)) return
+    setBulkRunning(true)
+    setBulkRunId(null)
+    setError(null)
+    try {
+      const run = await postScrapeAll({ universe, failed_only: true })
+      setBulkRunId(run.id)
+      setBulkRunProgress({ ...run, processed: 0, remaining: run.total_companies, percent_complete: 0 })
+      setRuns((prev) => [run, ...prev.slice(0, 4)])
+    } catch (err) {
+      setBulkRunning(false)
+      setError(err instanceof Error ? err.message : 'Refresh failed scrape failed')
+    }
+  }
+
   return (
     <div style={{ 
       fontFamily: 'system-ui, sans-serif',
@@ -267,21 +338,40 @@ export default function Home() {
             {bulkRunning ? 'Bulk running...' : 'Refresh All (Universe)'}
           </button>
           <button
-            onClick={handleSeedSp500}
-            disabled={seeding}
+            onClick={handleRefreshFailed}
+            disabled={bulkRunning}
             style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: seeding ? '#ccc' : '#0066cc',
+              padding: '0.75rem 1rem',
+              backgroundColor: bulkRunning ? '#ccc' : '#b45309',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
-              cursor: seeding ? 'not-allowed' : 'pointer',
-              fontSize: '1rem',
+              cursor: bulkRunning ? 'not-allowed' : 'pointer',
+              fontSize: '0.95rem',
               fontWeight: 'bold'
             }}
           >
-            {seeding ? 'Seeding...' : 'Seed S&P 500'}
+            Refresh Failed
           </button>
+          {(['sp500', 'dow_jones', 'nasdaq100', 'russell2000'] as const).map((source) => (
+            <button
+              key={source}
+              onClick={() => handleSeed(source)}
+              disabled={seeding != null}
+              style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: seeding != null ? '#ccc' : '#0066cc',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: seeding != null ? 'not-allowed' : 'pointer',
+                fontSize: '0.95rem',
+                fontWeight: 'bold'
+              }}
+            >
+              {seeding === source ? 'Seeding...' : `Seed ${seedLabels[source]}`}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -382,6 +472,81 @@ export default function Home() {
             ))}
           </select>
         </div>
+
+        <div style={{ minWidth: '160px' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+            Last Scrape Status
+          </label>
+          <select
+            value={selectedLastScrapeStatus}
+            onChange={handleLastScrapeStatusChange}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              fontSize: '1rem'
+            }}
+          >
+            <option value="">All</option>
+            <option value="never">Never</option>
+            {lastScrapeStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ minWidth: '140px' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+            State
+          </label>
+          <select
+            value={selectedState}
+            onChange={handleStateChange}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              fontSize: '1rem'
+            }}
+          >
+            <option value="">All States</option>
+            {states.map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedState && (
+          <div style={{ minWidth: '200px' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+              City
+            </label>
+            <select
+              value={selectedCity}
+              onChange={handleCityChange}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '1rem'
+              }}
+            >
+              <option value="">All Cities</option>
+              {cities.map(({ city, count }) => (
+                <option key={city} value={city}>
+                  {city} ({count})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div style={{ minWidth: '180px' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>

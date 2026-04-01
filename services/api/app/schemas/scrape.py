@@ -62,4 +62,5 @@ class ScrapeAllRequest(BaseModel):
     """Request body for POST /scrape/all."""
     universe: str | None = None
     tickers: list[str] | None = None
+    failed_only: bool = False  # if True, only scrape companies where last_scrape_status != 'success'
     page_size: int | None = None  # ignored, for UI

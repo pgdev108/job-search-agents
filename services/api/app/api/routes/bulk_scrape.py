@@ -24,13 +24,22 @@ async def scrape_all(
 ) -> ScrapeRunOut:
     """
     Start a bulk scrape run. Returns immediately with run_id.
-    Use universe (e.g. sp500) and/or tickers. If neither, uses default universe.
+    Use universe (e.g. sp500) and/or tickers. If failed_only=True, only companies with
+    last_scrape_status != 'success' are scraped (optionally scoped by universe).
     Returns 409 if a bulk run is already in progress.
     """
     try:
         settings.require_openai_key()
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    if body.failed_only:
+        universe = body.universe or settings.bulk_scrape_universe_default
+        try:
+            return await start_bulk_scrape(db, universe=universe, failed_only=True)
+        except ValueError as e:
+            if "already running" in str(e).lower():
+                raise HTTPException(status_code=409, detail="Bulk scrape already running")
+            raise HTTPException(status_code=400, detail=str(e))
     # When tickers provided, use only those (universe for display can be null). Else use universe filter.
     if body.tickers:
         universe = body.universe or None

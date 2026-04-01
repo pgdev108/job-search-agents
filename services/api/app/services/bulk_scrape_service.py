@@ -107,23 +107,37 @@ async def start_bulk_scrape(
     db: AsyncSession,
     universe: str | None = None,
     tickers: list[str] | None = None,
+    failed_only: bool = False,
 ) -> ScrapeRunOut:
     """
     Create a scrape_run, select target tickers, kick off background task, return run summary.
+    If failed_only=True, only companies with last_scrape_status != 'success' (or null) are included.
     Raises ValueError if a bulk run is already in progress (caller should return 409).
     """
     if await _has_running_run(db):
         raise ValueError("Bulk scrape already running")
 
     universe = universe or None
-    ticker_list = await company_repo.get_tickers_for_bulk(
-        session=db,
-        universe=universe,
-        tickers=tickers,
-        limit=settings.bulk_scrape_max_companies,
-    )
-    if not ticker_list:
-        raise ValueError("No companies to scrape for the given universe/tickers")
+    if failed_only:
+        ticker_list = await company_repo.get_tickers_failed(
+            session=db,
+            universe=universe,
+            limit=settings.bulk_scrape_max_companies,
+        )
+        if not ticker_list:
+            raise ValueError(
+                "No failed (non-success) companies to scrape for the given universe. "
+                "Try 'Refresh All' first or select a different universe."
+            )
+    else:
+        ticker_list = await company_repo.get_tickers_for_bulk(
+            session=db,
+            universe=universe,
+            tickers=tickers,
+            limit=settings.bulk_scrape_max_companies,
+        )
+        if not ticker_list:
+            raise ValueError("No companies to scrape for the given universe/tickers")
 
     run = ScrapeRun(
         started_at=_now_iso(),

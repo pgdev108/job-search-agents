@@ -36,9 +36,17 @@ export interface CompanyListParams {
   search?: string;
   sector?: string;
   universe?: string;
+  last_scrape_status?: string;
+  state?: string;
+  city?: string;
   sort?: 'name_asc' | 'job_count_desc' | 'last_scraped_at_desc';
   page?: number;
   page_size?: number;
+}
+
+export interface CityCount {
+  city: string;
+  count: number;
 }
 
 export interface SeedResult {
@@ -70,6 +78,15 @@ export async function getCompanies(params: CompanyListParams = {}): Promise<Comp
   }
   if (params.universe) {
     searchParams.append('universe', params.universe);
+  }
+  if (params.last_scrape_status) {
+    searchParams.append('last_scrape_status', params.last_scrape_status);
+  }
+  if (params.state) {
+    searchParams.append('state', params.state);
+  }
+  if (params.city) {
+    searchParams.append('city', params.city);
   }
   if (params.sort) {
     searchParams.append('sort', params.sort);
@@ -120,19 +137,64 @@ export async function getUniverses(): Promise<string[]> {
 }
 
 /**
- * Seed S&P 500 companies.
+ * Get distinct last scrape status values for filter dropdown. Use "never" for never scraped.
  */
-export async function seedSp500(): Promise<SeedResult> {
-  const url = `${API_BASE_URL}/admin/seed/sp500`;
-  const response = await fetch(url, {
-    method: 'POST',
-  });
+export async function getLastScrapeStatuses(): Promise<string[]> {
+  const url = `${API_BASE_URL}/companies/filters/last-scrape-statuses`;
+  const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`Failed to seed S&P 500: ${response.statusText}`);
+    throw new Error(`Failed to fetch last scrape statuses: ${response.statusText}`);
   }
 
   return response.json();
+}
+
+/**
+ * Get distinct HQ state values for filter dropdown.
+ */
+export async function getStates(): Promise<string[]> {
+  const url = `${API_BASE_URL}/companies/filters/states`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch states: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get cities in a state with company count. Call when a state is selected.
+ */
+export async function getCitiesByState(state: string): Promise<CityCount[]> {
+  const url = `${API_BASE_URL}/companies/filters/cities?state=${encodeURIComponent(state)}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch cities: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Seed index constituents. source is one of: sp500, dow_jones, nasdaq100, russell2000.
+ */
+export async function seedIndex(source: 'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000'): Promise<SeedResult> {
+  const url = `${API_BASE_URL}/admin/seed/${source}`;
+  const response = await fetch(url, { method: 'POST' });
+
+  if (!response.ok) {
+    throw new Error(`Failed to seed ${source}: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/** @deprecated Use seedIndex('sp500') */
+export async function seedSp500(): Promise<SeedResult> {
+  return seedIndex('sp500');
 }
 
 /**
@@ -201,6 +263,8 @@ export interface ScrapeRunDetail extends ScrapeRun {
 export interface ScrapeAllParams {
   universe?: string;
   tickers?: string[];
+  /** If true, only scrape companies whose last scrape was not success. */
+  failed_only?: boolean;
 }
 
 /**

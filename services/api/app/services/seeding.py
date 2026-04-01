@@ -7,6 +7,18 @@ from app.models.company import Company
 from app.sources.base import CompanySource, CompanySeedRecord
 
 
+def merge_universes(existing_universe: str, new_index: str) -> str:
+    """
+    Merge a new index into existing comma-separated universe list.
+    Returns sorted, comma-separated, no duplicates.
+    """
+    parts = [p.strip() for p in (existing_universe or "").split(",") if p.strip()]
+    new = (new_index or "").strip()
+    if new and new not in parts:
+        parts.append(new)
+    return ",".join(sorted(parts)) if parts else (new or "sample")
+
+
 class SeedResult:
     """Result of a seeding operation."""
     
@@ -48,12 +60,12 @@ async def seed_companies(
         existing = result.scalar_one_or_none()
         
         if existing:
-            # Update existing company
+            # Update existing company; merge universe so company can be in multiple indexes
             # Do NOT overwrite: career_page_url, job_count, last_scraped_at, last_scrape_status, last_scrape_error
             existing.name = record.name
             existing.sector = record.sector
             existing.industry = record.industry
-            existing.universe = record.universe
+            existing.universe = merge_universes(existing.universe, record.universe)
             existing.hq_location = record.hq_location
             existing.country = record.country
             existing.updated_at = now
