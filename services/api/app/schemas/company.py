@@ -22,6 +22,7 @@ class CompanyOut(BaseModel):
     last_scrape_status: Optional[str] = None
     last_scrape_error: Optional[str] = None
     not_interested: bool = False
+    applications_count: int = 0
     universe: str
     created_at: str
     updated_at: str

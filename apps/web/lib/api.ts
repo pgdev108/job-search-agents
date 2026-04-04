@@ -27,6 +27,7 @@ export interface Company {
   last_scrape_status: string | null;
   last_scrape_error: string | null;
   not_interested: boolean;
+  applications_count: number;
   universe: string;
   created_at: string;
   updated_at: string;
@@ -46,6 +47,7 @@ export interface CompanyListParams {
   state?: string;
   city?: string;
   interested_only?: boolean;
+  has_applications?: 'yes' | 'no';
   sort?: 'name_asc' | 'job_count_desc' | 'last_scraped_at_desc';
   page?: number;
   page_size?: number;
@@ -71,6 +73,76 @@ export interface CompanyListResponse {
   total_pages: number;
 }
 
+export interface JobApplication {
+  id: number;
+  company_id: number;
+  job_url: string;
+  job_title: string | null;
+  applied_date: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobApplicationCreateParams {
+  job_url: string;
+  job_title?: string;
+  applied_date: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface JobApplicationUpdateParams {
+  job_url?: string;
+  job_title?: string;
+  applied_date?: string;
+  status?: string;
+  notes?: string;
+}
+
+export async function getApplicationStatuses(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/applications/statuses`);
+  if (!response.ok) throw new Error('Failed to fetch statuses');
+  return response.json();
+}
+
+export async function getApplications(ticker: string): Promise<JobApplication[]> {
+  const response = await fetch(`${API_BASE_URL}/companies/${encodeURIComponent(ticker)}/applications`);
+  if (!response.ok) throw new Error('Failed to fetch applications');
+  return response.json();
+}
+
+export async function createApplication(ticker: string, params: JobApplicationCreateParams): Promise<JobApplication> {
+  const response = await fetch(`${API_BASE_URL}/companies/${encodeURIComponent(ticker)}/applications`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function updateApplication(applicationId: number, params: JobApplicationUpdateParams): Promise<JobApplication> {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
 /**
  * Get companies with filtering, sorting, and pagination.
  */
@@ -91,6 +163,9 @@ export async function getCompanies(params: CompanyListParams = {}): Promise<Comp
   }
   if (params.interested_only !== undefined) {
     searchParams.append('interested_only', params.interested_only.toString());
+  }
+  if (params.has_applications) {
+    searchParams.append('has_applications', params.has_applications);
   }
   if (params.state) {
     searchParams.append('state', params.state);

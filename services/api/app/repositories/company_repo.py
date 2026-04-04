@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 
 from app.models.company import Company
+from app.models.job_application import JobApplication
 
 
 def _scrape_eligible():
@@ -40,10 +41,11 @@ async def list_companies(
     state: str | None = None,
     city: str | None = None,
     interested_only: bool = True,
+    has_applications: str | None = None,
     sort: str = "name_asc",
     page: int = 1,
     page_size: int = 25,
-) -> tuple[list[Company], int]:
+) -> tuple[list[tuple[Company, int]], int]:
     """
     List companies with filtering, sorting, and pagination.
     
@@ -87,35 +89,45 @@ async def list_companies(
 
     if interested_only:
         conditions.append(Company.not_interested == False)  # noqa: E712
-    
+
+    # Application count subquery
+    app_count_subq = (
+        select(func.count(JobApplication.id))
+        .where(JobApplication.company_id == Company.id)
+        .correlate(Company)
+        .scalar_subquery()
+    )
+
+    if has_applications == "yes":
+        conditions.append(app_count_subq > 0)
+    elif has_applications == "no":
+        conditions.append(app_count_subq == 0)
+
+    query = select(Company, app_count_subq.label("applications_count"))
+
     if conditions:
         query = query.where(and_(*conditions))
-    
+
     # Apply sorting
     if sort == "job_count_desc":
         query = query.order_by(Company.job_count.desc().nulls_last(), Company.name.asc())
     elif sort == "last_scraped_at_desc":
         query = query.order_by(Company.last_scraped_at.desc().nulls_last(), Company.name.asc())
-    else:  # name_asc (default)
+    else:
         query = query.order_by(Company.name.asc())
-    
-    # Get total count (same filters)
+
+    # Total count
     count_query = select(func.count()).select_from(Company)
     if conditions:
         count_query = count_query.where(and_(*conditions))
-    
-    total_result = await session.execute(count_query)
-    total = total_result.scalar_one()
-    
-    # Apply pagination
-    offset = (page - 1) * page_size
-    query = query.limit(page_size).offset(offset)
-    
-    # Execute query
+
+    total = (await session.execute(count_query)).scalar_one()
+
+    # Pagination
+    query = query.limit(page_size).offset((page - 1) * page_size)
+
     result = await session.execute(query)
-    companies = result.scalars().all()
-    
-    return list(companies), total
+    return [(row.Company, row.applications_count) for row in result.all()], total
 
 
 async def get_tickers_for_bulk(

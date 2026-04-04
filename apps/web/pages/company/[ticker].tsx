@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
-import { getCompany, postScrapeCompany, patchCompany, Company } from '../../lib/api'
+import { getCompany, postScrapeCompany, patchCompany, getApplications, createApplication, updateApplication, getApplicationStatuses, Company, JobApplication } from '../../lib/api'
 
 export default function CompanyDetailPage() {
   const router = useRouter()
@@ -18,14 +18,35 @@ export default function CompanyDetailPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
+  const [applications, setApplications] = useState<JobApplication[]>([])
+  const [applicationStatuses, setApplicationStatuses] = useState<string[]>(['Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn'])
+  const [addJobOpen, setAddJobOpen] = useState(false)
+  const [addJobUrl, setAddJobUrl] = useState('')
+  const [addJobTitle, setAddJobTitle] = useState('')
+  const [addJobDate, setAddJobDate] = useState('')
+  const [addJobStatus, setAddJobStatus] = useState('Applied')
+  const [addJobNotes, setAddJobNotes] = useState('')
+  const [addJobSaving, setAddJobSaving] = useState(false)
+  const [addJobError, setAddJobError] = useState<string | null>(null)
+  const [editingApp, setEditingApp] = useState<JobApplication | null>(null)
+  const [editAppStatus, setEditAppStatus] = useState('')
+  const [editAppNotes, setEditAppNotes] = useState('')
+  const [editAppSaving, setEditAppSaving] = useState(false)
+
   useEffect(() => {
     if (typeof ticker !== 'string') return
     const load = async () => {
       setLoading(true)
       setError(null)
       try {
-        const data = await getCompany(ticker)
+        const [data, apps, statuses] = await Promise.all([
+          getCompany(ticker),
+          getApplications(ticker).catch(() => []),
+          getApplicationStatuses().catch(() => ['Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn']),
+        ])
         setCompany(data)
+        setApplications(apps)
+        setApplicationStatuses(statuses)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load company')
         setCompany(null)
@@ -35,6 +56,60 @@ export default function CompanyDetailPage() {
     }
     load()
   }, [ticker])
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const handleAddJobOpen = () => {
+    setAddJobUrl('')
+    setAddJobTitle('')
+    setAddJobDate(today)
+    setAddJobStatus('Applied')
+    setAddJobNotes('')
+    setAddJobError(null)
+    setAddJobOpen(true)
+  }
+
+  const handleAddJobSave = async () => {
+    if (!company || typeof ticker !== 'string') return
+    if (!addJobUrl.trim()) { setAddJobError('Job URL is required'); return }
+    setAddJobSaving(true)
+    setAddJobError(null)
+    try {
+      const created = await createApplication(ticker, {
+        job_url: addJobUrl.trim(),
+        job_title: addJobTitle.trim() || undefined,
+        applied_date: addJobDate,
+        status: addJobStatus,
+        notes: addJobNotes.trim() || undefined,
+      })
+      setApplications((prev) => [created, ...prev])
+      setAddJobOpen(false)
+    } catch (err) {
+      setAddJobError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setAddJobSaving(false)
+    }
+  }
+
+  const handleEditAppOpen = (app: JobApplication) => {
+    setEditingApp(app)
+    setEditAppStatus(app.status)
+    setEditAppNotes(app.notes ?? '')
+  }
+
+  const handleEditAppSave = async () => {
+    if (!editingApp) return
+    setEditAppSaving(true)
+    try {
+      const updated = await updateApplication(editingApp.id, { status: editAppStatus, notes: editAppNotes || undefined })
+      setApplications((prev) => prev.map((a) => a.id === updated.id ? updated : a))
+      setEditingApp(null)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setEditAppSaving(false)
+    }
+  }
 
   const handleEditOpen = () => {
     if (!company) return
@@ -128,6 +203,13 @@ export default function CompanyDetailPage() {
           </button>
           <button
             type="button"
+            onClick={handleAddJobOpen}
+            style={{ padding: '0.5rem 1rem', backgroundColor: '#059669', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+          >
+            Add Job
+          </button>
+          <button
+            type="button"
             onClick={handleRefresh}
             disabled={refreshing}
             style={{
@@ -208,6 +290,127 @@ export default function CompanyDetailPage() {
           </>
         )}
       </dl>
+
+      {/* Job Applications */}
+      <div style={{ marginTop: '2.5rem' }}>
+        <h2 style={{ marginBottom: '1rem' }}>Job Applications ({applications.length})</h2>
+        {applications.length === 0 ? (
+          <p style={{ color: '#666' }}>No applications tracked yet. Click "Add Job" to start.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f5f5f5' }}>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Job Title</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Job URL</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Date Applied</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Status</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Notes</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applications.map((app) => {
+                  const statusColors: Record<string, string> = {
+                    'Applied': '#0066cc', 'Phone Screen': '#7c3aed', 'Interview': '#b45309',
+                    'Offer': '#16a34a', 'Rejected': '#dc2626', 'Withdrawn': '#6b7280',
+                  }
+                  return (
+                    <tr key={app.id} style={{ borderBottom: '1px solid #ddd' }}>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>{app.job_title ?? '—'}</td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <a href={app.job_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }} title={app.job_url}>
+                          {app.job_url.length > 40 ? app.job_url.slice(0, 40) + '…' : app.job_url}
+                        </a>
+                      </td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>{app.applied_date}</td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', fontWeight: 600, color: statusColors[app.status] ?? '#333' }}>{app.status}</td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', fontSize: '0.875rem', color: '#555' }}>{app.notes ?? '—'}</td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
+                        <button
+                          onClick={() => handleEditAppOpen(app)}
+                          style={{ padding: '0.3rem 0.75rem', fontSize: '0.875rem', backgroundColor: '#6b7280', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                          Update
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Add Job modal */}
+      {addJobOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '2rem', width: '500px', maxWidth: '95vw', boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ margin: '0 0 1.5rem' }}>Add Job — {company.name}</h2>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Job Posting URL *</label>
+              <input type="url" value={addJobUrl} onChange={(e) => setAddJobUrl(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Job Title</label>
+              <input type="text" value={addJobTitle} onChange={(e) => setAddJobTitle(e.target.value)} placeholder="e.g. Senior Software Engineer" style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Date Applied</label>
+                <input type="date" value={addJobDate} onChange={(e) => setAddJobDate(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Status</label>
+                <select value={addJobStatus} onChange={(e) => setAddJobStatus(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}>
+                  {applicationStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Notes</label>
+              <textarea value={addJobNotes} onChange={(e) => setAddJobNotes(e.target.value)} placeholder="Optional notes..." rows={2} style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box', resize: 'vertical' }} />
+            </div>
+            {addJobError && <div style={{ padding: '0.5rem', backgroundColor: '#fef2f2', color: '#991b1b', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.875rem' }}>{addJobError}</div>}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setAddJobOpen(false)} disabled={addJobSaving} style={{ padding: '0.5rem 1.25rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleAddJobSave} disabled={addJobSaving} style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: addJobSaving ? '#ccc' : '#059669', color: 'white', cursor: addJobSaving ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+                {addJobSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update application status modal */}
+      {editingApp && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '2rem', width: '400px', maxWidth: '95vw', boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ margin: '0 0 1.5rem' }}>Update Application</h2>
+            <div style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#555' }}>
+              {editingApp.job_title && <strong>{editingApp.job_title}</strong>}
+              <div style={{ wordBreak: 'break-all' }}><a href={editingApp.job_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>{editingApp.job_url}</a></div>
+            </div>
+            <div style={{ marginBottom: '1rem', marginTop: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Status</label>
+              <select value={editAppStatus} onChange={(e) => setEditAppStatus(e.target.value)} style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem' }}>
+                {applicationStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Notes</label>
+              <textarea value={editAppNotes} onChange={(e) => setEditAppNotes(e.target.value)} rows={2} style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', resize: 'vertical' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setEditingApp(null)} disabled={editAppSaving} style={{ padding: '0.5rem 1.25rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleEditAppSave} disabled={editAppSaving} style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: editAppSaving ? '#ccc' : '#0066cc', color: 'white', cursor: editAppSaving ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+                {editAppSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editing && (

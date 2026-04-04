@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, getScrapeStatusCounts, cancelScrapeRun, patchCompany, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
+import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, getScrapeStatusCounts, cancelScrapeRun, patchCompany, createApplication, getApplicationStatuses, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -26,6 +26,16 @@ export default function Home() {
   const [editNotInterested, setEditNotInterested] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+
+  const [addJobCompany, setAddJobCompany] = useState<Company | null>(null)
+  const [addJobUrl, setAddJobUrl] = useState('')
+  const [addJobTitle, setAddJobTitle] = useState('')
+  const [addJobDate, setAddJobDate] = useState('')
+  const [addJobStatus, setAddJobStatus] = useState('Applied')
+  const [addJobNotes, setAddJobNotes] = useState('')
+  const [addJobSaving, setAddJobSaving] = useState(false)
+  const [addJobError, setAddJobError] = useState<string | null>(null)
+  const [applicationStatuses, setApplicationStatuses] = useState<string[]>(['Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn'])
   
   // Filter and pagination state
   const [search, setSearch] = useState('')
@@ -35,6 +45,7 @@ export default function Home() {
   const [selectedState, setSelectedState] = useState<string>('')
   const [selectedCity, setSelectedCity] = useState<string>('')
   const [interestedOnly, setInterestedOnly] = useState(true)
+  const [hasApplications, setHasApplications] = useState<'yes' | 'no' | ''>('')
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -61,13 +72,14 @@ export default function Home() {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [sectorsData, universesData, statusesData, statesData, runsData, countsData] = await Promise.all([
+        const [sectorsData, universesData, statusesData, statesData, runsData, countsData, appStatusesData] = await Promise.all([
           getSectors(),
           getUniverses(),
           getLastScrapeStatuses().catch(() => []),
           getStates().catch(() => []),
           getScrapeRuns({ page_size: 5 }).catch(() => []),
           getScrapeStatusCounts().catch(() => ({})),
+          getApplicationStatuses().catch(() => ['Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn']),
         ])
         setSectors(sectorsData)
         setUniverses(universesData)
@@ -75,6 +87,7 @@ export default function Home() {
         setStates(statesData)
         setRuns(runsData)
         setScrapeStatusCounts(countsData)
+        setApplicationStatuses(appStatusesData)
       } catch (err) {
         console.error('Failed to load filters:', err)
       }
@@ -146,6 +159,7 @@ export default function Home() {
           params.city = selectedCity
         }
         params.interested_only = interestedOnly
+        if (hasApplications) params.has_applications = hasApplications
 
         const data = await getCompanies(params)
         setCompanies(data.items)
@@ -160,7 +174,7 @@ export default function Home() {
     }
 
     loadCompanies()
-  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, interestedOnly, sort, page, pageSize])
+  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, interestedOnly, hasApplications, sort, page, pageSize])
 
   const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedSector(e.target.value)
@@ -318,6 +332,39 @@ export default function Home() {
     } catch (err) {
       setBulkRunning(false)
       setError(err instanceof Error ? err.message : 'Refresh failed scrape failed')
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const handleAddJobOpen = (company: Company) => {
+    setAddJobCompany(company)
+    setAddJobUrl('')
+    setAddJobTitle('')
+    setAddJobDate(today)
+    setAddJobStatus('Applied')
+    setAddJobNotes('')
+    setAddJobError(null)
+  }
+
+  const handleAddJobSave = async () => {
+    if (!addJobCompany) return
+    if (!addJobUrl.trim()) { setAddJobError('Job URL is required'); return }
+    setAddJobSaving(true)
+    setAddJobError(null)
+    try {
+      await createApplication(addJobCompany.ticker, {
+        job_url: addJobUrl.trim(),
+        job_title: addJobTitle.trim() || undefined,
+        applied_date: addJobDate,
+        status: addJobStatus,
+        notes: addJobNotes.trim() || undefined,
+      })
+      setAddJobCompany(null)
+    } catch (err) {
+      setAddJobError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setAddJobSaving(false)
     }
   }
 
@@ -566,6 +613,21 @@ export default function Home() {
 
         <div style={{ minWidth: '140px' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+            Jobs Applied
+          </label>
+          <select
+            value={hasApplications}
+            onChange={(e) => { setHasApplications(e.target.value as 'yes' | 'no' | ''); setPage(1) }}
+            style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem' }}
+          >
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        <div style={{ minWidth: '140px' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
             State
           </label>
           <select
@@ -749,7 +811,7 @@ export default function Home() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ City</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ State</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Career Page</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Job Count</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Jobs Applied</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scrape Status</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scraped</th>
                   <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Not Interested?</th>
@@ -803,7 +865,7 @@ export default function Home() {
                         )}
                       </td>
                       <td style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>
-                        {company.job_count !== null ? company.job_count.toLocaleString() : '-'}
+                        {company.applications_count > 0 ? company.applications_count : '-'}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {getStatusBadge(company)}
@@ -846,6 +908,21 @@ export default function Home() {
                             }}
                           >
                             Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddJobOpen(company)}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              fontSize: '0.875rem',
+                              backgroundColor: '#059669',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Add Job
                           </button>
                         </div>
                       </td>
@@ -971,6 +1048,92 @@ export default function Home() {
                 style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: editSaving ? '#ccc' : '#0066cc', color: 'white', cursor: editSaving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.95rem' }}
               >
                 {editSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Job modal */}
+      {addJobCompany && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '2rem', width: '500px', maxWidth: '95vw', boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ margin: '0 0 1.5rem' }}>Add Job — {addJobCompany.name}</h2>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Job Posting URL *</label>
+              <input
+                type="url"
+                value={addJobUrl}
+                onChange={(e) => setAddJobUrl(e.target.value)}
+                placeholder="https://..."
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Job Title</label>
+              <input
+                type="text"
+                value={addJobTitle}
+                onChange={(e) => setAddJobTitle(e.target.value)}
+                placeholder="e.g. Senior Software Engineer"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Date Applied</label>
+                <input
+                  type="date"
+                  value={addJobDate}
+                  onChange={(e) => setAddJobDate(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Status</label>
+                <select
+                  value={addJobStatus}
+                  onChange={(e) => setAddJobStatus(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
+                >
+                  {applicationStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Notes</label>
+              <textarea
+                value={addJobNotes}
+                onChange={(e) => setAddJobNotes(e.target.value)}
+                placeholder="Optional notes..."
+                rows={2}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box', resize: 'vertical' }}
+              />
+            </div>
+
+            {addJobError && (
+              <div style={{ padding: '0.5rem', backgroundColor: '#fef2f2', color: '#991b1b', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                {addJobError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setAddJobCompany(null)}
+                disabled={addJobSaving}
+                style={{ padding: '0.5rem 1.25rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer', fontSize: '0.95rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddJobSave}
+                disabled={addJobSaving}
+                style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: addJobSaving ? '#ccc' : '#059669', color: 'white', cursor: addJobSaving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.95rem' }}
+              >
+                {addJobSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

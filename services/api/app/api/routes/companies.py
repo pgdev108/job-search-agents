@@ -21,6 +21,7 @@ async def list_companies(
     city: str | None = Query(None, description="Filter by HQ city (use with state)"),
     sort: str = Query("name_asc", description="Sort order: name_asc, job_count_desc, last_scraped_at_desc"),
     interested_only: bool = Query(True, description="If true, exclude companies marked as not interested"),
+    has_applications: str | None = Query(None, description="Filter by applications: 'yes' (>=1), 'no' (0), or omit for all"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=500, description="Items per page (max 500)"),
     db: AsyncSession = Depends(get_db),
@@ -32,7 +33,7 @@ async def list_companies(
         sort = "name_asc"
     
     # Get companies from repository
-    companies, total = await company_repo.list_companies(
+    rows, total = await company_repo.list_companies(
         session=db,
         search=search,
         sector=sector,
@@ -41,16 +42,19 @@ async def list_companies(
         state=state,
         city=city,
         interested_only=interested_only,
+        has_applications=has_applications,
         sort=sort,
         page=page,
         page_size=page_size,
     )
-    
-    # Calculate total pages
+
     total_pages = ceil(total / page_size) if total > 0 else 0
-    
-    # Convert to Pydantic models
-    items = [CompanyOut.model_validate(company) for company in companies]
+
+    items = []
+    for company, applications_count in rows:
+        out = CompanyOut.model_validate(company)
+        out.applications_count = applications_count
+        items.append(out)
     
     return CompanyListOut(
         items=items,
