@@ -403,6 +403,7 @@ export default function Home() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <h1 style={{ margin: 0 }}>Job Search Agent - Companies</h1>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <Link href="/bay-area" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Bay Area Companies</Link>
           <Link href="/runs" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Scrape Runs</Link>
           <button
             onClick={handleRefreshAll}

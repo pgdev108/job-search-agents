@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sqlite3 services/api/data/app.db ':*)"
+      "Bash(sqlite3 services/api/data/app.db ':*)",
+      "Bash(python3 -)",
+      "Read(//Users/pankaj/**)",
+      "Bash(npm run:*)",
+      "Bash(sqlite3 data/app.db \"SELECT COUNT\\(*\\) FROM bay_area_companies;\")",
+      "Bash(uv run python -c ':*)",
+      "Bash(sqlite3 data/app.db ':*)"
+    ],
+    "additionalDirectories": [
+      "/Users/pankaj/Pankaj/personal/Job Search"
     ]
   }
 }

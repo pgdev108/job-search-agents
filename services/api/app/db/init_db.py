@@ -11,6 +11,7 @@ from app.models.company import Company
 from app.models.scrape_event import CompanyScrapeEvent
 from app.models.scrape_run import ScrapeRun
 from app.models.job_application import JobApplication  # noqa: F401 — ensures table is registered
+from app.models.bay_area_company import BayAreaCompany  # noqa: F401 — ensures table is registered
 
 
 async def create_tables():

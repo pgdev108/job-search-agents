@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes import health, companies, admin, scrape, bulk_scrape
-from app.api.routes import job_applications
+from app.api.routes import job_applications, bay_area_companies
 from app.db.init_db import init_db
 
 
@@ -42,4 +42,5 @@ app.include_router(admin.router, tags=["admin"])
 app.include_router(scrape.router)
 app.include_router(bulk_scrape.router)
 app.include_router(job_applications.router, tags=["applications"])
+app.include_router(bay_area_companies.router)
 

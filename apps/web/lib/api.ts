@@ -465,3 +465,94 @@ export async function getScrapeRunCompanies(runId: number): Promise<Company[]> {
   return response.json();
 }
 
+// --- Bay Area Companies ---
+
+export interface BayAreaCompany {
+  id: number;
+  name: string;
+  tags: string | null;
+  location: string | null;
+  investors: string | null;
+  description: string | null;
+  website: string | null;
+  domain: string | null;
+  founded_year: number | null;
+  address: string | null;
+  hq_city: string | null;
+  hq_state: string | null;
+  lat: number | null;
+  long: number | null;
+  company_size: string | null;
+  tech_stack: string | null;
+  marketing_stack: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BayAreaCompanyListResponse {
+  items: BayAreaCompany[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface BayAreaSeedResult {
+  inserted: number;
+  updated: number;
+  total: number;
+}
+
+export interface BayAreaListParams {
+  search?: string;
+  location?: string;
+  tag?: string;
+  company_size?: string;
+  sort?: 'name_asc' | 'founded_desc' | 'founded_asc';
+  page?: number;
+  page_size?: number;
+}
+
+export async function seedBayArea(): Promise<BayAreaSeedResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/seed/bay-area`, { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function getBayAreaCompanies(params: BayAreaListParams = {}): Promise<BayAreaCompanyListResponse> {
+  const sp = new URLSearchParams();
+  if (params.search) sp.append('search', params.search);
+  if (params.location) sp.append('location', params.location);
+  if (params.tag) sp.append('tag', params.tag);
+  if (params.company_size) sp.append('company_size', params.company_size);
+  if (params.sort) sp.append('sort', params.sort);
+  if (params.page) sp.append('page', params.page.toString());
+  if (params.page_size) sp.append('page_size', params.page_size.toString());
+  const response = await fetch(`${API_BASE_URL}/bay-area/companies?${sp.toString()}`);
+  if (!response.ok) throw new Error(`Failed to fetch Bay Area companies: ${response.statusText}`);
+  return response.json();
+}
+
+export async function getBayAreaLocations(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/bay-area/companies/filters/locations`);
+  if (!response.ok) throw new Error('Failed to fetch locations');
+  return response.json();
+}
+
+export async function getBayAreaTags(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/bay-area/companies/filters/tags`);
+  if (!response.ok) throw new Error('Failed to fetch tags');
+  return response.json();
+}
+
+export async function getBayAreaSizes(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/bay-area/companies/filters/sizes`);
+  if (!response.ok) throw new Error('Failed to fetch sizes');
+  return response.json();
+}
+
