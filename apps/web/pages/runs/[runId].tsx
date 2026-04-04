@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
-import { getScrapeRun, getScrapeRunCompanies, ScrapeRunDetail, Company } from '../../lib/api'
+import { getScrapeRun, getScrapeRunCompanies, cancelScrapeRun, ScrapeRunDetail, Company } from '../../lib/api'
 
 export default function RunDetailPage() {
   const router = useRouter()
@@ -13,6 +13,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all') // all | failed | blocked
+  const [cancelling, setCancelling] = useState(false)
 
   const id = typeof runId === 'string' ? parseInt(runId, 10) : NaN
 
@@ -102,7 +103,38 @@ export default function RunDetailPage() {
       <div style={{ marginBottom: '1.5rem' }}>
         <Link href="/runs" style={{ color: '#0066cc', textDecoration: 'none' }}>← Back to runs</Link>
       </div>
-      <h1 style={{ margin: 0 }}>Run #{run.id}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>Run #{run.id}</h1>
+        {run.status === 'running' && (
+          <button
+            disabled={cancelling}
+            onClick={async () => {
+              if (!confirm('Cancel this run? In-flight companies will still finish.')) return
+              setCancelling(true)
+              try {
+                await cancelScrapeRun(run.id)
+                const updated = await getScrapeRun(run.id)
+                setRun(updated)
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Cancel failed')
+              } finally {
+                setCancelling(false)
+              }
+            }}
+            style={{
+              padding: '0.4rem 1rem',
+              backgroundColor: cancelling ? '#ccc' : '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: cancelling ? 'not-allowed' : 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            {cancelling ? 'Cancelling...' : 'Cancel Run'}
+          </button>
+        )}
+      </div>
       <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
           <div><strong>Status</strong><br /><span style={{ color: run.status === 'running' ? '#059669' : run.status === 'success' ? '#16a34a' : '#dc2626' }}>{run.status}</span></div>

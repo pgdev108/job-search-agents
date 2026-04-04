@@ -10,7 +10,7 @@ from app.schemas.scrape import (
     ScrapeAllRequest,
 )
 from app.schemas.company import CompanyOut
-from app.services.bulk_scrape_service import start_bulk_scrape
+from app.services.bulk_scrape_service import start_bulk_scrape, cancel_run
 from app.repositories import scrape_run_repo
 from app.core.config import settings
 
@@ -33,7 +33,7 @@ async def scrape_all(
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     if body.failed_only:
-        universe = body.universe or settings.bulk_scrape_universe_default
+        universe = body.universe or None
         try:
             return await start_bulk_scrape(db, universe=universe, failed_only=True)
         except ValueError as e:
@@ -66,6 +66,28 @@ async def list_scrape_runs(
     """List recent scrape runs, newest first."""
     runs, _ = await scrape_run_repo.list_runs(db, status=status, universe=universe, page=page, page_size=page_size)
     return [ScrapeRunOut.model_validate(r) for r in runs]
+
+
+@router.post("/runs/{run_id}/cancel", response_model=ScrapeRunOut)
+async def cancel_scrape_run(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ScrapeRunOut:
+    """
+    Request cancellation of a running bulk scrape. The run will stop after the
+    currently in-flight companies finish. Status becomes 'cancelled'.
+    Returns 404 if run not found, 409 if run is not currently running.
+    """
+    run = await scrape_run_repo.get_run_by_id(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Scrape run not found")
+    if run.status != "running":
+        raise HTTPException(status_code=409, detail=f"Run {run_id} is not running (status: {run.status})")
+    found = cancel_run(run_id)
+    if not found:
+        # Background task already finished between the status check and cancel call
+        raise HTTPException(status_code=409, detail=f"Run {run_id} is no longer active")
+    return ScrapeRunOut.model_validate(run)
 
 
 @router.get("/runs/{run_id}", response_model=ScrapeRunDetailOut)

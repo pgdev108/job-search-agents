@@ -1,8 +1,18 @@
 """Company repository for database operations."""
+from datetime import datetime, timezone
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 
 from app.models.company import Company
+
+
+def _scrape_eligible():
+    """Filter condition: company is not marked not_interested and has no career page URL."""
+    return and_(
+        Company.not_interested == False,  # noqa: E712
+        Company.career_page_url.is_(None),
+    )
 
 
 def _universe_contains_like(universe: str):
@@ -29,6 +39,7 @@ async def list_companies(
     last_scrape_status: str | None = None,
     state: str | None = None,
     city: str | None = None,
+    interested_only: bool = True,
     sort: str = "name_asc",
     page: int = 1,
     page_size: int = 25,
@@ -73,6 +84,9 @@ async def list_companies(
     
     if city:
         conditions.append(func.upper(Company.hq_city) == city.strip().upper())
+
+    if interested_only:
+        conditions.append(Company.not_interested == False)  # noqa: E712
     
     if conditions:
         query = query.where(and_(*conditions))
@@ -111,11 +125,10 @@ async def get_tickers_for_bulk(
     limit: int = 6000,
 ) -> list[str]:
     """
-    Get list of tickers for bulk scrape.
+    Get list of tickers for bulk scrape. Excludes ignored companies and manually-set career URLs.
     If tickers provided, return those (up to limit). Else if universe, return all in universe. Else all.
     """
     if tickers:
-        # Dedupe and limit
         seen = set()
         out = []
         for t in tickers:
@@ -124,7 +137,7 @@ async def get_tickers_for_bulk(
                 seen.add(t)
                 out.append(t)
         return out
-    query = select(Company.ticker).order_by(Company.ticker)
+    query = select(Company.ticker).where(_scrape_eligible()).order_by(Company.ticker)
     if universe:
         query = query.where(_universe_contains_like(universe))
     query = query.limit(limit)
@@ -139,8 +152,7 @@ async def get_tickers_failed(
 ) -> list[str]:
     """
     Get tickers of companies whose last scrape was not success.
-    (last_scrape_status IS NULL OR LOWER(last_scrape_status) != 'success').
-    Optionally filter by universe.
+    Excludes ignored companies and manually-set career URLs.
     """
     not_success = or_(
         Company.last_scrape_status.is_(None),
@@ -148,7 +160,7 @@ async def get_tickers_failed(
     )
     query = (
         select(Company.ticker)
-        .where(not_success)
+        .where(not_success, _scrape_eligible())
         .order_by(Company.ticker)
         .limit(limit)
     )
@@ -156,6 +168,39 @@ async def get_tickers_failed(
         query = query.where(_universe_contains_like(universe))
     result = await session.execute(query)
     return [row[0] for row in result.all()]
+
+
+_UNSET = object()
+
+
+async def update_company(
+    session: AsyncSession,
+    ticker: str,
+    career_page_url: object = _UNSET,  # pass _UNSET to leave unchanged
+    not_interested: bool | None = None,
+) -> Company | None:
+    """
+    Partial update for not_interested flag and/or career_page_url.
+    Passing career_page_url="" clears it. Passing None leaves it unchanged.
+    When career_page_url is set to a non-empty value, career_page_source is set to 'manual'.
+    When cleared, career_page_source is also cleared.
+    """
+    company = await get_company_by_ticker(session, ticker)
+    if not company:
+        return None
+    if not_interested is not None:
+        company.not_interested = not_interested
+    if career_page_url is not _UNSET:
+        if career_page_url:
+            company.career_page_url = career_page_url.strip()
+            company.career_page_source = "manual"
+        else:
+            company.career_page_url = None
+            company.career_page_source = None
+    company.updated_at = datetime.now(timezone.utc).isoformat()
+    await session.commit()
+    await session.refresh(company)
+    return company
 
 
 async def get_company_by_ticker(session: AsyncSession, ticker: str) -> Company | None:
@@ -210,6 +255,21 @@ async def get_states(session: AsyncSession) -> list[str]:
     )
     result = await session.execute(query)
     return [row[0] for row in result.all() if row[0]]
+
+
+async def get_scrape_status_counts(session: AsyncSession) -> dict[str, int]:
+    """Return count of companies per last_scrape_status, including 'never' for NULL."""
+    cnt = func.count(Company.id).label("cnt")
+    query = (
+        select(Company.last_scrape_status, cnt)
+        .group_by(Company.last_scrape_status)
+    )
+    result = await session.execute(query)
+    counts: dict[str, int] = {}
+    for row in result.all():
+        key = row[0] if row[0] is not None else "never"
+        counts[key] = row[1]
+    return counts
 
 
 async def get_cities_by_state(session: AsyncSession, state: str) -> list[tuple[str, int]]:

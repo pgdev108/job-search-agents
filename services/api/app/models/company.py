@@ -27,6 +27,7 @@ class Company(Base):
     last_scrape_status: Mapped[str | None] = mapped_column(String, nullable=True)
     last_scrape_error: Mapped[str | None] = mapped_column(String, nullable=True)
     last_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # most recent bulk run that touched this company
+    not_interested: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # if True, excluded from all scrape runs
     universe: Mapped[str] = mapped_column(String, nullable=False, default="sample")
     created_at: Mapped[str] = mapped_column(String, nullable=False)  # ISO datetime string
     updated_at: Mapped[str] = mapped_column(String, nullable=False)  # ISO datetime string

@@ -21,10 +21,11 @@ class CompanyOut(BaseModel):
     last_scraped_at: Optional[str] = None
     last_scrape_status: Optional[str] = None
     last_scrape_error: Optional[str] = None
+    not_interested: bool = False
     universe: str
     created_at: str
     updated_at: str
-    
+
     model_config = {"from_attributes": True}
 
 
@@ -36,6 +37,12 @@ class CompanyListOut(BaseModel):
     page_size: int = Field(ge=1, le=500)
     total: int = Field(ge=0)
     total_pages: int = Field(ge=0)
+
+
+class CompanyUpdateRequest(BaseModel):
+    """Request body for PATCH /companies/{ticker}."""
+    career_page_url: Optional[str] = None  # set to "" to clear
+    not_interested: Optional[bool] = None
 
 
 class CityCountOut(BaseModel):

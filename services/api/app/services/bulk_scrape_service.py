@@ -16,6 +16,9 @@ from app.services.scrape_service import scrape_company_by_ticker
 # SQLite allows only one writer at a time. Serialize all DB writes during bulk run to avoid "database is locked".
 _db_write_lock = asyncio.Lock()
 
+# Per-run cancel events. Set the event to request cancellation of that run.
+_cancel_events: dict[int, asyncio.Event] = {}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -52,24 +55,39 @@ async def _update_run_counts(
     await session.commit()
 
 
-async def _finish_run(session: AsyncSession, run_id: int) -> None:
-    """Set finished_at and status (success if no failures else failed)."""
+async def _finish_run(session: AsyncSession, run_id: int, cancelled: bool = False) -> None:
+    """Set finished_at and status."""
     r = await session.get(ScrapeRun, run_id)
     if not r:
         return
     r.finished_at = _now_iso()
-    r.status = "success" if (r.failed_count == 0 and r.blocked_count == 0 and r.not_found_count == 0) else "failed"
+    if cancelled:
+        r.status = "cancelled"
+    else:
+        r.status = "success" if (r.failed_count == 0 and r.blocked_count == 0 and r.not_found_count == 0) else "failed"
     await session.commit()
+
+
+def cancel_run(run_id: int) -> bool:
+    """Signal a running bulk scrape to stop. Returns True if the run was found, False if not active."""
+    event = _cancel_events.get(run_id)
+    if event is None:
+        return False
+    event.set()
+    return True
 
 
 async def _process_one_ticker(
     ticker: str,
     run_id: int,
     semaphore: asyncio.Semaphore,
+    cancel_event: asyncio.Event,
 ) -> None:
     """Process a single company; update run counters. Uses its own DB session.
     All DB access is serialized with _db_write_lock to avoid SQLite 'database is locked'.
     """
+    if cancel_event.is_set():
+        return
     async with semaphore:
         await asyncio.sleep(random.uniform(0, 0.2))
         async with _db_write_lock:
@@ -94,13 +112,17 @@ async def _process_one_ticker(
 
 async def _run_bulk_background(run_id: int, tickers: list[str]) -> None:
     """Background task: process all tickers with concurrency limit."""
+    cancel_event = asyncio.Event()
+    _cancel_events[run_id] = cancel_event
     concurrency = max(1, min(settings.bulk_scrape_concurrency, 32))
     semaphore = asyncio.Semaphore(concurrency)
     try:
-        await asyncio.gather(*[_process_one_ticker(t, run_id, semaphore) for t in tickers])
+        await asyncio.gather(*[_process_one_ticker(t, run_id, semaphore, cancel_event) for t in tickers])
     finally:
+        cancelled = cancel_event.is_set()
+        _cancel_events.pop(run_id, None)
         async with AsyncSessionLocal() as session:
-            await _finish_run(session, run_id)
+            await _finish_run(session, run_id, cancelled=cancelled)
 
 
 async def start_bulk_scrape(

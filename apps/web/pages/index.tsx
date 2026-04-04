@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
+import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, getScrapeStatusCounts, cancelScrapeRun, patchCompany, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -20,6 +20,12 @@ export default function Home() {
   const [bulkRunId, setBulkRunId] = useState<number | null>(null)
   const [bulkRunProgress, setBulkRunProgress] = useState<ScrapeRunDetail | null>(null)
   const [runs, setRuns] = useState<ScrapeRun[]>([])
+  const [scrapeStatusCounts, setScrapeStatusCounts] = useState<Record<string, number>>({})
+  const [editingCompany, setEditingCompany] = useState<Company | null>(null)
+  const [editCareerUrl, setEditCareerUrl] = useState('')
+  const [editNotInterested, setEditNotInterested] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
   
   // Filter and pagination state
   const [search, setSearch] = useState('')
@@ -28,6 +34,7 @@ export default function Home() {
   const [selectedLastScrapeStatus, setSelectedLastScrapeStatus] = useState<string>('')
   const [selectedState, setSelectedState] = useState<string>('')
   const [selectedCity, setSelectedCity] = useState<string>('')
+  const [interestedOnly, setInterestedOnly] = useState(true)
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -54,18 +61,20 @@ export default function Home() {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [sectorsData, universesData, statusesData, statesData, runsData] = await Promise.all([
+        const [sectorsData, universesData, statusesData, statesData, runsData, countsData] = await Promise.all([
           getSectors(),
           getUniverses(),
           getLastScrapeStatuses().catch(() => []),
           getStates().catch(() => []),
           getScrapeRuns({ page_size: 5 }).catch(() => []),
+          getScrapeStatusCounts().catch(() => ({})),
         ])
         setSectors(sectorsData)
         setUniverses(universesData)
         setLastScrapeStatuses(statusesData)
         setStates(statesData)
         setRuns(runsData)
+        setScrapeStatusCounts(countsData)
       } catch (err) {
         console.error('Failed to load filters:', err)
       }
@@ -136,6 +145,7 @@ export default function Home() {
         if (selectedCity) {
           params.city = selectedCity
         }
+        params.interested_only = interestedOnly
 
         const data = await getCompanies(params)
         setCompanies(data.items)
@@ -150,7 +160,7 @@ export default function Home() {
     }
 
     loadCompanies()
-  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, sort, page, pageSize])
+  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, interestedOnly, sort, page, pageSize])
 
   const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedSector(e.target.value)
@@ -294,8 +304,9 @@ export default function Home() {
   }
 
   const handleRefreshFailed = async () => {
-    const universe = selectedUniverse || 'sp500'
-    if (!confirm(`Refresh only failed/non-success companies for universe "${universe}"?`)) return
+    const universe = selectedUniverse || undefined
+    const universeLabel = universe ?? 'All Universes'
+    if (!confirm(`Refresh only failed/non-success companies for "${universeLabel}"? This may take a while.`)) return
     setBulkRunning(true)
     setBulkRunId(null)
     setError(null)
@@ -310,8 +321,33 @@ export default function Home() {
     }
   }
 
+  const handleEditOpen = (company: Company) => {
+    setEditingCompany(company)
+    setEditCareerUrl(company.career_page_url ?? '')
+    setEditNotInterested(company.not_interested)
+    setEditError(null)
+  }
+
+  const handleEditSave = async () => {
+    if (!editingCompany) return
+    setEditSaving(true)
+    setEditError(null)
+    try {
+      const updated = await patchCompany(editingCompany.ticker, {
+        career_page_url: editCareerUrl,
+        not_interested: editNotInterested,
+      })
+      setCompanies((prev) => prev.map((c) => c.ticker === updated.ticker ? updated : c))
+      setEditingCompany(null)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   return (
-    <div style={{ 
+    <div style={{
       fontFamily: 'system-ui, sans-serif',
       padding: '2rem',
       maxWidth: '1400px',
@@ -377,10 +413,40 @@ export default function Home() {
 
       {/* Bulk run progress banner */}
       {bulkRunProgress && bulkRunProgress.status === 'running' && (
-        <div style={{ padding: '0.75rem 1rem', backgroundColor: '#e0f2fe', border: '1px solid #0ea5e9', borderRadius: '4px', marginBottom: '1rem' }}>
-          <strong>Bulk refresh running:</strong> {bulkRunProgress.percent_complete.toFixed(0)}% complete
-          ({bulkRunProgress.processed} / {bulkRunProgress.total_companies}) —{' '}
-          <Link href={`/runs/${bulkRunProgress.id}`} style={{ color: '#0369a1', fontWeight: 600 }}>View run</Link>
+        <div style={{ padding: '0.75rem 1rem', backgroundColor: '#e0f2fe', border: '1px solid #0ea5e9', borderRadius: '4px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <span>
+            <strong>Bulk refresh running:</strong> {bulkRunProgress.percent_complete.toFixed(0)}% complete
+            ({bulkRunProgress.processed} / {bulkRunProgress.total_companies}) —{' '}
+            <Link href={`/runs/${bulkRunProgress.id}`} style={{ color: '#0369a1', fontWeight: 600 }}>View run</Link>
+          </span>
+          <button
+            onClick={async () => {
+              if (!bulkRunId) return
+              if (!confirm('Cancel the current bulk scrape run?')) return
+              try {
+                await cancelScrapeRun(bulkRunId)
+                setBulkRunning(false)
+                setBulkRunId(null)
+                setBulkRunProgress(null)
+                const runsData = await getScrapeRuns({ page_size: 5 })
+                setRuns(runsData)
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Cancel failed')
+              }
+            }}
+            style={{
+              padding: '0.25rem 0.75rem',
+              backgroundColor: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+            }}
+          >
+            Cancel Run
+          </button>
         </div>
       )}
 
@@ -569,6 +635,19 @@ export default function Home() {
           </select>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '1.5rem' }}>
+          <input
+            type="checkbox"
+            id="interested-only"
+            checked={interestedOnly}
+            onChange={(e) => { setInterestedOnly(e.target.checked); setPage(1) }}
+            style={{ width: '1rem', height: '1rem', cursor: 'pointer' }}
+          />
+          <label htmlFor="interested-only" style={{ fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Show Interested Only
+          </label>
+        </div>
+
         <div style={{ minWidth: '120px' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
             Per page
@@ -601,6 +680,29 @@ export default function Home() {
               {' '}{r.status}{' '}({r.success_count + r.failed_count + r.blocked_count + r.not_found_count}/{r.total_companies})
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Scrape status summary */}
+      {Object.keys(scrapeStatusCounts).length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <strong style={{ whiteSpace: 'nowrap' }}>Scrape status:</strong>
+          {Object.entries(scrapeStatusCounts)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([status, count]) => {
+              const colors: Record<string, string> = {
+                success: '#16a34a',
+                failed: '#dc2626',
+                blocked: '#b45309',
+                not_found: '#666',
+                never: '#888',
+              }
+              return (
+                <span key={status} style={{ color: colors[status] ?? '#333', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}: {count.toLocaleString()}
+                </span>
+              )
+            })}
         </div>
       )}
 
@@ -648,8 +750,9 @@ export default function Home() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ State</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Career Page</th>
                   <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Job Count</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Status</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scrape Status</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scraped</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Not Interested?</th>
                   <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Actions</th>
                 </tr>
               </thead>
@@ -708,23 +811,43 @@ export default function Home() {
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {formatDate(company.last_scraped_at)}
                       </td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center', fontSize: '0.9rem' }}>
+                        {company.not_interested ? '✓' : ''}
+                      </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleRefresh(company.ticker)}
-                          disabled={refreshingTicker === company.ticker}
-                          style={{
-                            padding: '0.35rem 0.75rem',
-                            fontSize: '0.875rem',
-                            backgroundColor: refreshingTicker === company.ticker ? '#e0e0e0' : '#0066cc',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: refreshingTicker === company.ticker ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          {refreshingTicker === company.ticker ? 'Refreshing...' : 'Refresh'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleRefresh(company.ticker)}
+                            disabled={refreshingTicker === company.ticker}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              fontSize: '0.875rem',
+                              backgroundColor: refreshingTicker === company.ticker ? '#e0e0e0' : '#0066cc',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: refreshingTicker === company.ticker ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {refreshingTicker === company.ticker ? 'Refreshing...' : 'Refresh'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleEditOpen(company)}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              fontSize: '0.875rem',
+                              backgroundColor: '#6b7280',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -793,6 +916,65 @@ export default function Home() {
             ) : null}
           </div>
         </>
+      )}
+
+      {/* Edit modal */}
+      {editingCompany && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '2rem', width: '480px', maxWidth: '95vw', boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ margin: '0 0 1.5rem' }}>Edit — {editingCompany.name} ({editingCompany.ticker})</h2>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Career Page URL</label>
+              <input
+                type="url"
+                value={editCareerUrl}
+                onChange={(e) => setEditCareerUrl(e.target.value)}
+                placeholder="https://careers.company.com"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
+              />
+              <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                If a URL is set (manually or via scrape), the company will be excluded from bulk scrape runs.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <input
+                type="checkbox"
+                id="edit-not-interested"
+                checked={editNotInterested}
+                onChange={(e) => setEditNotInterested(e.target.checked)}
+                style={{ width: '1rem', height: '1rem', cursor: 'pointer' }}
+              />
+              <label htmlFor="edit-not-interested" style={{ fontWeight: 600, cursor: 'pointer' }}>
+                Not Interested in pursuing this company
+              </label>
+            </div>
+
+            {editError && (
+              <div style={{ padding: '0.5rem', backgroundColor: '#fef2f2', color: '#991b1b', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                {editError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setEditingCompany(null)}
+                disabled={editSaving}
+                style={{ padding: '0.5rem 1.25rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer', fontSize: '0.95rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditSave}
+                disabled={editSaving}
+                style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: editSaving ? '#ccc' : '#0066cc', color: 'white', cursor: editSaving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.95rem' }}
+              >
+                {editSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

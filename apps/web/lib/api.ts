@@ -4,6 +4,11 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
+export interface CompanyUpdateParams {
+  career_page_url?: string;  // set to "" to clear
+  not_interested?: boolean;
+}
+
 export interface Company {
   id: number;
   name: string;
@@ -21,6 +26,7 @@ export interface Company {
   last_scraped_at: string | null;
   last_scrape_status: string | null;
   last_scrape_error: string | null;
+  not_interested: boolean;
   universe: string;
   created_at: string;
   updated_at: string;
@@ -39,6 +45,7 @@ export interface CompanyListParams {
   last_scrape_status?: string;
   state?: string;
   city?: string;
+  interested_only?: boolean;
   sort?: 'name_asc' | 'job_count_desc' | 'last_scraped_at_desc';
   page?: number;
   page_size?: number;
@@ -81,6 +88,9 @@ export async function getCompanies(params: CompanyListParams = {}): Promise<Comp
   }
   if (params.last_scrape_status) {
     searchParams.append('last_scrape_status', params.last_scrape_status);
+  }
+  if (params.interested_only !== undefined) {
+    searchParams.append('interested_only', params.interested_only.toString());
   }
   if (params.state) {
     searchParams.append('state', params.state);
@@ -133,6 +143,16 @@ export async function getUniverses(): Promise<string[]> {
     throw new Error(`Failed to fetch universes: ${response.statusText}`);
   }
 
+  return response.json();
+}
+
+/**
+ * Get count of companies per last_scrape_status. 'never' = never scraped (NULL).
+ */
+export async function getScrapeStatusCounts(): Promise<Record<string, number>> {
+  const url = `${API_BASE_URL}/companies/filters/scrape-status-counts`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch scrape status counts: ${response.statusText}`);
   return response.json();
 }
 
@@ -211,6 +231,28 @@ export async function getCompany(ticker: string): Promise<Company> {
     throw new Error(`Failed to fetch company: ${response.statusText}`);
   }
 
+  return response.json();
+}
+
+/**
+ * Update ignore flag and/or career_page_url for a company.
+ */
+export async function patchCompany(ticker: string, params: CompanyUpdateParams): Promise<Company> {
+  const url = `${API_BASE_URL}/companies/${encodeURIComponent(ticker)}`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const body = JSON.parse(text);
+      if (body.detail) message = typeof body.detail === 'string' ? body.detail : message;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return response.json();
 }
 
@@ -304,6 +346,24 @@ export async function getScrapeRuns(params: { status?: string; universe?: string
   const url = `${API_BASE_URL}/scrape/runs?${searchParams.toString()}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Failed to fetch runs: ${response.statusText}`);
+  return response.json();
+}
+
+/**
+ * Cancel a running bulk scrape run.
+ */
+export async function cancelScrapeRun(runId: number): Promise<ScrapeRun> {
+  const url = `${API_BASE_URL}/scrape/runs/${runId}/cancel`;
+  const response = await fetch(url, { method: 'POST' });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const body = JSON.parse(text);
+      if (body.detail) message = typeof body.detail === 'string' ? body.detail : message;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return response.json();
 }
 
