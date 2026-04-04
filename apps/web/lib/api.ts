@@ -7,12 +7,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8
 export interface CompanyUpdateParams {
   career_page_url?: string;  // set to "" to clear
   not_interested?: boolean;
+  company_tags?: string;     // comma-separated tag names, set to "" to clear
 }
 
 export interface Company {
   id: number;
   name: string;
-  ticker: string;
+  ticker: string | null;
   sector: string | null;
   industry: string | null;
   hq_location: string | null;
@@ -29,6 +30,12 @@ export interface Company {
   not_interested: boolean;
   applications_count: number;
   universe: string;
+  description: string | null;
+  website: string | null;
+  domain: string | null;
+  founded_year: number | null;
+  company_size: string | null;
+  company_tags: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -46,6 +53,7 @@ export interface CompanyListParams {
   last_scrape_status?: string;
   state?: string;
   city?: string;
+  tag?: string;
   interested_only?: boolean;
   has_applications?: 'yes' | 'no';
   sort?: 'name_asc' | 'job_count_desc' | 'last_scraped_at_desc';
@@ -173,6 +181,9 @@ export async function getCompanies(params: CompanyListParams = {}): Promise<Comp
   if (params.city) {
     searchParams.append('city', params.city);
   }
+  if (params.tag) {
+    searchParams.append('tag', params.tag);
+  }
   if (params.sort) {
     searchParams.append('sort', params.sort);
   }
@@ -218,6 +229,45 @@ export async function getUniverses(): Promise<string[]> {
     throw new Error(`Failed to fetch universes: ${response.statusText}`);
   }
 
+  return response.json();
+}
+
+/**
+ * Get all available tag names from the tags table.
+ */
+export async function getTags(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/tags`);
+  if (!response.ok) throw new Error(`Failed to fetch tags: ${response.statusText}`);
+  return response.json();
+}
+
+/**
+ * Create a new tag. Returns updated list of all tags.
+ */
+export async function deleteTag(name: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/tags/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+}
+
+export async function createTag(name: string): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return response.json();
 }
 
@@ -295,17 +345,27 @@ export async function seedSp500(): Promise<SeedResult> {
 /**
  * Get a single company by ticker (for detail page).
  */
-export async function getCompany(ticker: string): Promise<Company> {
-  const url = `${API_BASE_URL}/companies/${encodeURIComponent(ticker)}`;
-  const response = await fetch(url);
-
+export async function getCompanyById(id: number): Promise<Company> {
+  const response = await fetch(`${API_BASE_URL}/companies/${id}`);
   if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(`Company '${ticker}' not found`);
-    }
+    if (response.status === 404) throw new Error(`Company with id '${id}' not found`);
     throw new Error(`Failed to fetch company: ${response.statusText}`);
   }
+  return response.json();
+}
 
+export async function patchCompanyById(id: number, params: CompanyUpdateParams): Promise<Company> {
+  const response = await fetch(`${API_BASE_URL}/companies/by-id/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return response.json();
 }
 

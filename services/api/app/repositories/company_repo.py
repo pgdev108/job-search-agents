@@ -21,7 +21,6 @@ def _universe_contains_like(universe: str):
     raw = (universe or "").strip()
     if not raw:
         return Company.universe.isnot(None)
-    # Escape LIKE wildcards so "dow_jones" matches literally (not _ as any char)
     safe = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     like_esc = "\\"
     return or_(
@@ -29,6 +28,21 @@ def _universe_contains_like(universe: str):
         Company.universe.like(safe + ",%", escape=like_esc),
         Company.universe.like("%," + safe + ",%", escape=like_esc),
         Company.universe.like("%," + safe, escape=like_esc),
+    )
+
+
+def _tag_contains_like(tag: str):
+    """Match if company's company_tags (comma-separated) contains tag as a whole token."""
+    raw = (tag or "").strip()
+    if not raw:
+        return Company.company_tags.isnot(None)
+    safe = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like_esc = "\\"
+    return or_(
+        Company.company_tags == raw,
+        Company.company_tags.like(safe + ",%", escape=like_esc),
+        Company.company_tags.like("%," + safe + ",%", escape=like_esc),
+        Company.company_tags.like("%," + safe, escape=like_esc),
     )
 
 
@@ -40,6 +54,7 @@ async def list_companies(
     last_scrape_status: str | None = None,
     state: str | None = None,
     city: str | None = None,
+    tag: str | None = None,
     interested_only: bool = True,
     has_applications: str | None = None,
     sort: str = "name_asc",
@@ -68,6 +83,9 @@ async def list_companies(
                 func.lower(Company.ticker).like(search_term),
             )
         )
+
+    if tag:
+        conditions.append(_tag_contains_like(tag))
     
     if sector:
         conditions.append(Company.sector == sector)
@@ -190,9 +208,10 @@ async def update_company(
     ticker: str,
     career_page_url: object = _UNSET,  # pass _UNSET to leave unchanged
     not_interested: bool | None = None,
+    company_tags: object = _UNSET,  # pass _UNSET to leave unchanged; "" clears
 ) -> Company | None:
     """
-    Partial update for not_interested flag and/or career_page_url.
+    Partial update for not_interested flag, career_page_url, and/or company_tags.
     Passing career_page_url="" clears it. Passing None leaves it unchanged.
     When career_page_url is set to a non-empty value, career_page_source is set to 'manual'.
     When cleared, career_page_source is also cleared.
@@ -209,6 +228,8 @@ async def update_company(
         else:
             company.career_page_url = None
             company.career_page_source = None
+    if company_tags is not _UNSET:
+        company.company_tags = (company_tags.strip() or None) if company_tags else None
     company.updated_at = datetime.now(timezone.utc).isoformat()
     await session.commit()
     await session.refresh(company)
@@ -220,6 +241,40 @@ async def get_company_by_ticker(session: AsyncSession, ticker: str) -> Company |
     query = select(Company).where(func.lower(Company.ticker) == ticker.strip().lower())
     result = await session.execute(query)
     return result.scalar_one_or_none()
+
+
+async def get_company_by_id(session: AsyncSession, company_id: int) -> Company | None:
+    """Get a single company by its primary key ID."""
+    result = await session.execute(select(Company).where(Company.id == company_id))
+    return result.scalar_one_or_none()
+
+
+async def update_company_by_id(
+    session: AsyncSession,
+    company_id: int,
+    career_page_url: object = _UNSET,
+    not_interested: bool | None = None,
+    company_tags: object = _UNSET,
+) -> Company | None:
+    """Partial update for a company identified by its numeric ID (for private companies without ticker)."""
+    company = await get_company_by_id(session, company_id)
+    if not company:
+        return None
+    if not_interested is not None:
+        company.not_interested = not_interested
+    if career_page_url is not _UNSET:
+        if career_page_url:
+            company.career_page_url = career_page_url.strip()
+            company.career_page_source = "manual"
+        else:
+            company.career_page_url = None
+            company.career_page_source = None
+    if company_tags is not _UNSET:
+        company.company_tags = (company_tags.strip() or None) if company_tags else None
+    company.updated_at = datetime.now(timezone.utc).isoformat()
+    await session.commit()
+    await session.refresh(company)
+    return company
 
 
 async def get_sectors(session: AsyncSession) -> list[str]:
@@ -303,3 +358,50 @@ async def get_cities_by_state(session: AsyncSession, state: str) -> list[tuple[s
     result = await session.execute(query)
     return [(row[0], row[1]) for row in result.all() if row[0]]
 
+
+
+async def get_all_tags(session: AsyncSession) -> list[str]:
+    """Get all tag names from the tags table, sorted alphabetically."""
+    from app.models.tag import Tag
+    result = await session.execute(select(Tag.name).order_by(Tag.name))
+    return [r[0] for r in result.all()]
+
+
+async def create_tag(session: AsyncSession, name: str) -> bool:
+    """Create a new tag. Returns True if created, False if already exists."""
+    from app.models.tag import Tag
+    from datetime import datetime, timezone
+    existing = await session.execute(select(Tag).where(Tag.name == name.strip().lower()))
+    if existing.scalar_one_or_none():
+        return False
+    session.add(Tag(name=name.strip().lower(), created_at=datetime.now(timezone.utc).isoformat()))
+    await session.commit()
+    return True
+
+
+async def delete_tag(session: AsyncSession, name: str) -> bool:
+    """
+    Delete a tag by name. Also removes the tag token from all companies' company_tags.
+    Returns True if the tag existed and was deleted, False if not found.
+    """
+    from app.models.tag import Tag
+    name = name.strip().lower()
+    tag_row = (await session.execute(select(Tag).where(Tag.name == name))).scalar_one_or_none()
+    if not tag_row:
+        return False
+    await session.delete(tag_row)
+
+    # Strip the tag token from all companies that have it
+    result = await session.execute(
+        select(Company).where(_tag_contains_like(name))
+    )
+    companies = result.scalars().all()
+    for company in companies:
+        if not company.company_tags:
+            continue
+        tokens = [t.strip() for t in company.company_tags.split(",") if t.strip() and t.strip() != name]
+        company.company_tags = ",".join(tokens) if tokens else None
+        company.updated_at = datetime.now(timezone.utc).isoformat()
+
+    await session.commit()
+    return True

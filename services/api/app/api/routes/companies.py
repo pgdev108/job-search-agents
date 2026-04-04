@@ -1,5 +1,5 @@
 """Companies API routes."""
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from math import ceil
 
@@ -19,6 +19,7 @@ async def list_companies(
     last_scrape_status: str | None = Query(None, description="Filter by last scrape status: success, failed, blocked, not_found, or never (never scraped)"),
     state: str | None = Query(None, description="Filter by HQ state (e.g. IL, CA)"),
     city: str | None = Query(None, description="Filter by HQ city (use with state)"),
+    tag: str | None = Query(None, description="Filter by company tag (e.g. bay_area)"),
     sort: str = Query("name_asc", description="Sort order: name_asc, job_count_desc, last_scraped_at_desc"),
     interested_only: bool = Query(True, description="If true, exclude companies marked as not interested"),
     has_applications: str | None = Query(None, description="Filter by applications: 'yes' (>=1), 'no' (0), or omit for all"),
@@ -41,6 +42,7 @@ async def list_companies(
         last_scrape_status=last_scrape_status,
         state=state,
         city=city,
+        tag=tag,
         interested_only=interested_only,
         has_applications=has_applications,
         sort=sort,
@@ -99,6 +101,39 @@ async def get_cities_by_state(
     return [CityCountOut(city=city, count=count) for city, count in rows]
 
 
+@router.get("/companies/{company_id}", response_model=CompanyOut)
+async def get_company_by_id(
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single company by its numeric ID."""
+    company = await company_repo.get_company_by_id(db, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")
+    return CompanyOut.model_validate(company)
+
+
+@router.patch("/companies/by-id/{company_id}", response_model=CompanyOut)
+async def update_company_by_id(
+    company_id: int,
+    body: CompanyUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a private company (no ticker) by its numeric ID."""
+    career_page_url = _UNSET if body.career_page_url is None else body.career_page_url
+    company_tags = _UNSET if body.company_tags is None else body.company_tags
+    company = await company_repo.update_company_by_id(
+        session=db,
+        company_id=company_id,
+        career_page_url=career_page_url,
+        not_interested=body.not_interested,
+        company_tags=company_tags,
+    )
+    if not company:
+        raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")
+    return CompanyOut.model_validate(company)
+
+
 @router.patch("/companies/{ticker}", response_model=CompanyOut)
 async def update_company(
     ticker: str,
@@ -107,27 +142,18 @@ async def update_company(
 ):
     """Update ignore flag and/or career_page_url for a company. Set career_page_url to '' to clear it."""
     career_page_url = _UNSET if body.career_page_url is None else body.career_page_url
+    company_tags = _UNSET if body.company_tags is None else body.company_tags
     company = await company_repo.update_company(
         session=db,
         ticker=ticker,
         career_page_url=career_page_url,
         not_interested=body.not_interested,
+        company_tags=company_tags,
     )
     if not company:
         raise HTTPException(status_code=404, detail=f"Company '{ticker}' not found")
     return CompanyOut.model_validate(company)
 
-
-@router.get("/companies/{ticker}", response_model=CompanyOut)
-async def get_company_by_ticker(
-    ticker: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a single company by ticker (for detail page)."""
-    company = await company_repo.get_company_by_ticker(db, ticker)
-    if not company:
-        raise HTTPException(status_code=404, detail=f"Company with ticker '{ticker}' not found")
-    return CompanyOut.model_validate(company)
 
 
 @router.get("/sectors", response_model=list[str])
@@ -147,3 +173,33 @@ async def get_universes(
     universes = await company_repo.get_universes(db)
     return universes
 
+
+
+@router.get("/tags", response_model=list[str])
+async def get_tags(db: AsyncSession = Depends(get_db)):
+    """Get all available tag names."""
+    return await company_repo.get_all_tags(db)
+
+
+@router.post("/tags", response_model=list[str], status_code=201)
+async def create_tag(
+    name: str = Body(..., embed=True, description="Tag name to create"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new tag. Returns updated list of all tags."""
+    name = name.strip().lower()
+    if not name:
+        raise HTTPException(status_code=422, detail="Tag name cannot be empty")
+    await company_repo.create_tag(db, name)
+    return await company_repo.get_all_tags(db)
+
+
+@router.delete("/tags/{name}", status_code=204)
+async def delete_tag(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a tag by name and remove it from all companies that have it."""
+    deleted = await company_repo.delete_tag(db, name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Tag '{name}' not found")

@@ -1,8 +1,125 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, getScrapeStatusCounts, cancelScrapeRun, patchCompany, createApplication, getApplicationStatuses, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
+import { getCompanies, getSectors, getUniverses, getLastScrapeStatuses, getStates, getCitiesByState, seedIndex, postScrapeCompany, postScrapeAll, getScrapeRuns, getScrapeRun, getScrapeStatusCounts, cancelScrapeRun, patchCompanyById, createApplication, getApplicationStatuses, getTags, Company, CompanyListParams, ScrapeRun, ScrapeRunDetail } from '../lib/api'
+
+function TagMultiSelect({ allTags, selected, onChange }: {
+  allTags: string[]
+  selected: string[]
+  onChange: (tags: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const toggle = (tag: string) => {
+    onChange(selected.includes(tag) ? selected.filter(t => t !== tag) : [...selected, tag])
+  }
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Tags</label>
+      <div ref={ref} style={{ position: 'relative' }}>
+        {/* Trigger */}
+        <div
+          onClick={() => setOpen(o => !o)}
+          style={{
+            width: '100%',
+            minHeight: '38px',
+            padding: '0.35rem 2rem 0.35rem 0.5rem',
+            border: `1px solid ${open ? '#0066cc' : '#ccc'}`,
+            borderRadius: '4px',
+            cursor: 'pointer',
+            backgroundColor: 'white',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '4px',
+            alignItems: 'center',
+            position: 'relative',
+          }}
+        >
+          {selected.length === 0 ? (
+            <span style={{ color: '#9ca3af', fontSize: '0.95rem' }}>Select tags…</span>
+          ) : (
+            selected.map(tag => (
+              <span
+                key={tag}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  padding: '2px 8px', backgroundColor: '#dbeafe', color: '#1d4ed8',
+                  borderRadius: '12px', fontSize: '0.8rem', fontWeight: 500,
+                }}
+              >
+                {tag}
+                <span
+                  onClick={e => { e.stopPropagation(); toggle(tag) }}
+                  style={{ cursor: 'pointer', fontWeight: 700, lineHeight: 1, color: '#1d4ed8' }}
+                >
+                  ×
+                </span>
+              </span>
+            ))
+          )}
+          {/* Chevron */}
+          <span style={{
+            position: 'absolute', right: '0.5rem', top: '50%', transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+            color: '#6b7280', fontSize: '0.75rem', pointerEvents: 'none', transition: 'transform 0.15s',
+          }}>▼</span>
+        </div>
+
+        {/* Dropdown panel */}
+        {open && (
+          <div style={{
+            position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+            backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: '200px', overflowY: 'auto',
+          }}>
+            {allTags.length === 0 ? (
+              <div style={{ padding: '0.75rem', color: '#9ca3af', fontSize: '0.9rem' }}>
+                No tags available.{' '}
+                <Link href="/tags" target="_blank" style={{ color: '#0066cc' }}>Add tags</Link>
+              </div>
+            ) : (
+              allTags.map(tag => (
+                <label
+                  key={tag}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem',
+                    padding: '0.5rem 0.75rem', cursor: 'pointer',
+                    backgroundColor: selected.includes(tag) ? '#eff6ff' : 'white',
+                  }}
+                  onMouseEnter={e => { if (!selected.includes(tag)) (e.currentTarget as HTMLElement).style.backgroundColor = '#f9fafb' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = selected.includes(tag) ? '#eff6ff' : 'white' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(tag)}
+                    onChange={() => toggle(tag)}
+                    style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#0066cc' }}
+                  />
+                  <span style={{ fontSize: '0.9rem' }}>{tag}</span>
+                </label>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+        Manage tags on the{' '}
+        <Link href="/tags" target="_blank" style={{ color: '#0066cc' }}>Tags page</Link>.
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -24,8 +141,10 @@ export default function Home() {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
   const [editCareerUrl, setEditCareerUrl] = useState('')
   const [editNotInterested, setEditNotInterested] = useState(false)
+  const [editSelectedTags, setEditSelectedTags] = useState<string[]>([])
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [allTags, setAllTags] = useState<string[]>([])
 
   const [addJobCompany, setAddJobCompany] = useState<Company | null>(null)
   const [addJobUrl, setAddJobUrl] = useState('')
@@ -44,6 +163,7 @@ export default function Home() {
   const [selectedLastScrapeStatus, setSelectedLastScrapeStatus] = useState<string>('')
   const [selectedState, setSelectedState] = useState<string>('')
   const [selectedCity, setSelectedCity] = useState<string>('')
+  const [selectedTag, setSelectedTag] = useState<string>('')
   const [interestedOnly, setInterestedOnly] = useState(true)
   const [hasApplications, setHasApplications] = useState<'yes' | 'no' | ''>('')
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc')
@@ -72,7 +192,7 @@ export default function Home() {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [sectorsData, universesData, statusesData, statesData, runsData, countsData, appStatusesData] = await Promise.all([
+        const [sectorsData, universesData, statusesData, statesData, runsData, countsData, appStatusesData, tagsData] = await Promise.all([
           getSectors(),
           getUniverses(),
           getLastScrapeStatuses().catch(() => []),
@@ -80,6 +200,7 @@ export default function Home() {
           getScrapeRuns({ page_size: 5 }).catch(() => []),
           getScrapeStatusCounts().catch(() => ({})),
           getApplicationStatuses().catch(() => ['Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn']),
+          getTags().catch(() => []),
         ])
         setSectors(sectorsData)
         setUniverses(universesData)
@@ -88,6 +209,7 @@ export default function Home() {
         setRuns(runsData)
         setScrapeStatusCounts(countsData)
         setApplicationStatuses(appStatusesData)
+        setAllTags(tagsData)
       } catch (err) {
         console.error('Failed to load filters:', err)
       }
@@ -160,6 +282,7 @@ export default function Home() {
         }
         params.interested_only = interestedOnly
         if (hasApplications) params.has_applications = hasApplications
+        if (selectedTag) params.tag = selectedTag
 
         const data = await getCompanies(params)
         setCompanies(data.items)
@@ -174,7 +297,7 @@ export default function Home() {
     }
 
     loadCompanies()
-  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, interestedOnly, hasApplications, sort, page, pageSize])
+  }, [search, selectedSector, selectedUniverse, selectedLastScrapeStatus, selectedState, selectedCity, selectedTag, interestedOnly, hasApplications, sort, page, pageSize])
 
   const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedSector(e.target.value)
@@ -372,6 +495,7 @@ export default function Home() {
     setEditingCompany(company)
     setEditCareerUrl(company.career_page_url ?? '')
     setEditNotInterested(company.not_interested)
+    setEditSelectedTags(company.company_tags ? company.company_tags.split(',').map(t => t.trim()).filter(Boolean) : [])
     setEditError(null)
   }
 
@@ -380,11 +504,12 @@ export default function Home() {
     setEditSaving(true)
     setEditError(null)
     try {
-      const updated = await patchCompany(editingCompany.ticker, {
+      const updated = await patchCompanyById(editingCompany.id, {
         career_page_url: editCareerUrl,
         not_interested: editNotInterested,
+        company_tags: editSelectedTags.join(','),
       })
-      setCompanies((prev) => prev.map((c) => c.ticker === updated.ticker ? updated : c))
+      setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c))
       setEditingCompany(null)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : 'Save failed')
@@ -404,6 +529,7 @@ export default function Home() {
         <h1 style={{ margin: 0 }}>Job Search Agent - Companies</h1>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <Link href="/bay-area" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Bay Area Companies</Link>
+          <Link href="/tags" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Tags</Link>
           <Link href="/runs" style={{ padding: '0.75rem 1rem', color: '#0066cc', fontWeight: 600, textDecoration: 'none' }}>Scrape Runs</Link>
           <button
             onClick={handleRefreshAll}
@@ -677,6 +803,30 @@ export default function Home() {
           </div>
         )}
 
+        <div style={{ minWidth: '150px' }}>
+          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+            Tag
+          </label>
+          <select
+            value={selectedTag}
+            onChange={(e) => { setSelectedTag(e.target.value); setPage(1) }}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              fontSize: '1rem'
+            }}
+          >
+            <option value="">All Tags</option>
+            {allTags.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div style={{ minWidth: '180px' }}>
           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
             Sort By
@@ -814,7 +964,7 @@ export default function Home() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Career Page</th>
                   <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Jobs Applied</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scrape Status</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scraped</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Tags</th>
                   <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Not Interested?</th>
                   <th style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #ddd' }}>Actions</th>
                 </tr>
@@ -831,7 +981,7 @@ export default function Home() {
                     <tr key={company.id} style={{ borderBottom: '1px solid #ddd' }}>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         <div>
-                          <Link href={`/company/${company.ticker}`} style={{ color: '#0066cc', fontWeight: 600 }}>
+                          <Link href={`/company/id/${company.id}`} style={{ color: '#0066cc', fontWeight: 600 }}>
                             {company.name}
                           </Link>
                         </div>
@@ -872,29 +1022,23 @@ export default function Home() {
                         {getStatusBadge(company)}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
-                        {formatDate(company.last_scraped_at)}
+                        {company.company_tags
+                          ? company.company_tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                              <span
+                                key={tag}
+                                onClick={() => { setSelectedTag(tag); setPage(1) }}
+                                style={{ display: 'inline-block', padding: '2px 8px', backgroundColor: selectedTag === tag ? '#1d4ed8' : '#dbeafe', color: selectedTag === tag ? '#fff' : '#1d4ed8', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500, marginRight: '4px', marginBottom: '2px', cursor: 'pointer' }}
+                              >
+                                {tag}
+                              </span>
+                            ))
+                          : '-'}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center', fontSize: '0.9rem' }}>
                         {company.not_interested ? '✓' : ''}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleRefresh(company.ticker)}
-                            disabled={refreshingTicker === company.ticker}
-                            style={{
-                              padding: '0.35rem 0.75rem',
-                              fontSize: '0.875rem',
-                              backgroundColor: refreshingTicker === company.ticker ? '#e0e0e0' : '#0066cc',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: refreshingTicker === company.ticker ? 'not-allowed' : 'pointer',
-                            }}
-                          >
-                            {refreshingTicker === company.ticker ? 'Refreshing...' : 'Refresh'}
-                          </button>
                           <button
                             type="button"
                             onClick={() => handleEditOpen(company)}
@@ -1028,6 +1172,12 @@ export default function Home() {
                 Not Interested in pursuing this company
               </label>
             </div>
+
+            <TagMultiSelect
+              allTags={allTags}
+              selected={editSelectedTags}
+              onChange={setEditSelectedTags}
+            />
 
             {editError && (
               <div style={{ padding: '0.5rem', backgroundColor: '#fef2f2', color: '#991b1b', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.875rem' }}>

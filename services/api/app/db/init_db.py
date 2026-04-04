@@ -12,6 +12,7 @@ from app.models.scrape_event import CompanyScrapeEvent
 from app.models.scrape_run import ScrapeRun
 from app.models.job_application import JobApplication  # noqa: F401 — ensures table is registered
 from app.models.bay_area_company import BayAreaCompany  # noqa: F401 — ensures table is registered
+from app.models.tag import Tag  # noqa: F401 — ensures table is registered
 
 
 async def create_tables():
@@ -47,6 +48,44 @@ async def migrate_not_interested_column():
             await conn.execute(text("ALTER TABLE companies ADD COLUMN not_interested INTEGER NOT NULL DEFAULT 0"))
         except Exception:
             pass
+
+
+async def migrate_company_enrichment_columns():
+    """Add enrichment + company_tags columns to companies if missing."""
+    cols = [
+        "description TEXT",
+        "website TEXT",
+        "domain TEXT",
+        "founded_year INTEGER",
+        "company_size TEXT",
+        "company_tags TEXT",
+    ]
+    async with engine.begin() as conn:
+        for col_def in cols:
+            try:
+                await conn.execute(text(f"ALTER TABLE companies ADD COLUMN {col_def}"))
+            except Exception:
+                pass
+        # Index for company_tags
+        try:
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_company_tags ON companies(company_tags)"))
+        except Exception:
+            pass
+
+
+async def seed_tags():
+    """Ensure default tags exist in the tags table."""
+    from app.models.tag import Tag
+    default_tags = ["bay_area"]
+    now = datetime.utcnow().isoformat()
+    async with AsyncSessionLocal() as session:
+        for name in default_tags:
+            existing = await session.execute(
+                select(Tag).where(Tag.name == name)
+            )
+            if existing.scalar_one_or_none() is None:
+                session.add(Tag(name=name, created_at=now))
+        await session.commit()
 
 
 async def migrate_scrape_run_columns():
@@ -181,7 +220,11 @@ async def init_db():
     await migrate_hq_city_state_columns()
     await migrate_scrape_run_columns()
     await migrate_not_interested_column()
-    
+    await migrate_company_enrichment_columns()
+
+    # Seed reference data
+    await seed_tags()
+
     # Seed tiny sample if table is empty (only for offline testing)
     await seed_companies()
 

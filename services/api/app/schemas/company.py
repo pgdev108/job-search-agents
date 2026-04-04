@@ -4,10 +4,10 @@ from typing import Optional
 
 class CompanyOut(BaseModel):
     """Company output schema."""
-    
+
     id: int
     name: str
-    ticker: str
+    ticker: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
     hq_location: Optional[str] = None
@@ -24,6 +24,12 @@ class CompanyOut(BaseModel):
     not_interested: bool = False
     applications_count: int = 0
     universe: str
+    description: Optional[str] = None
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    founded_year: Optional[int] = None
+    company_size: Optional[str] = None
+    company_tags: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -44,6 +50,7 @@ class CompanyUpdateRequest(BaseModel):
     """Request body for PATCH /companies/{ticker}."""
     career_page_url: Optional[str] = None  # set to "" to clear
     not_interested: Optional[bool] = None
+    company_tags: Optional[str] = None  # comma-separated tag names, set to "" to clear
 
 
 class CityCountOut(BaseModel):
