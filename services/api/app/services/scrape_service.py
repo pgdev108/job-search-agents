@@ -13,11 +13,9 @@ from app.repositories import company_repo
 from app.schemas.company import CompanyOut
 from app.schemas.scrape import (
     CareerDiscoveryResult,
-    JobCountResult,
     CompanyScrapeResponse,
 )
 from app.agents.career_discovery_agent import discover_career_page
-from app.scrapers.job_count_extractor import extract_job_count
 
 
 def _now_iso() -> str:
@@ -59,21 +57,6 @@ async def _run_discovery(company: Company) -> CareerDiscoveryResult:
         api_key=settings.openai_api_key,
     )
 
-
-@retry(
-    stop=stop_after_attempt(MAX_SCRAPE_ATTEMPTS),
-    retry=retry_if_exception_type((OSError, TimeoutError)),
-    reraise=True,
-)
-async def _run_job_count(url: str, company: Company) -> JobCountResult:
-    return await extract_job_count(
-        url,
-        company_name=company.name,
-        ticker=company.ticker,
-        headless=settings.playwright_headless,
-        nav_timeout_ms=settings.playwright_nav_timeout_ms,
-        domain_delay_ms=settings.scrape_domain_delay_ms,
-    )
 
 
 async def scrape_company_by_ticker(
@@ -167,43 +150,14 @@ async def scrape_company_by_ticker(
             job_count=None,
         )
 
-    # --- Job count ---
-    try:
-        job_count_result = await _run_job_count(career_url, company)
-    except Exception as e:
-        job_count_result = JobCountResult(
-            job_count=None,
-            method="error",
-            evidence="",
-            status="failed",
-            error=str(e)[:500],
-        )
-
-    await _log_event(
-        db,
-        company.id,
-        "count_jobs",
-        payload_with_ticker({
-            "job_count": job_count_result.job_count,
-            "method": job_count_result.method,
-            "status": job_count_result.status,
-            "error": job_count_result.error,
-            "evidence": (job_count_result.evidence[:200] if job_count_result.evidence else ""),
-            "step": "count_jobs",
-        }),
-        run_id=run_id,
-    )
-
-    company.job_count = job_count_result.job_count
-    company.job_count_extraction_method = job_count_result.method
     company.last_scraped_at = _now_iso()
-    company.last_scrape_status = job_count_result.status
-    company.last_scrape_error = job_count_result.error or None
+    company.last_scrape_status = "success"
+    company.last_scrape_error = None
     await db.commit()
     await db.refresh(company)
 
     return CompanyScrapeResponse(
         company=CompanyOut.model_validate(company),
         discovery=discovery,
-        job_count=job_count_result,
+        job_count=None,
     )
