@@ -8,6 +8,14 @@ export interface CompanyUpdateParams {
   career_page_url?: string;  // set to "" to clear
   not_interested?: boolean;
   company_tags?: string;     // comma-separated tag names, set to "" to clear
+  website?: string;          // set to "" to clear
+  hq_city?: string;
+  hq_state?: string;
+  sector?: string;
+  industry?: string;
+  description?: string;
+  founded_year?: number;
+  company_size?: string;
 }
 
 export interface Company {

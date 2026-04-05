@@ -120,14 +120,20 @@ async def update_company_by_id(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a private company (no ticker) by its numeric ID."""
-    career_page_url = _UNSET if body.career_page_url is None else body.career_page_url
-    company_tags = _UNSET if body.company_tags is None else body.company_tags
     company = await company_repo.update_company_by_id(
         session=db,
         company_id=company_id,
-        career_page_url=career_page_url,
+        career_page_url=_UNSET if body.career_page_url is None else body.career_page_url,
         not_interested=body.not_interested,
-        company_tags=company_tags,
+        company_tags=_UNSET if body.company_tags is None else body.company_tags,
+        website=_UNSET if body.website is None else body.website,
+        hq_city=_UNSET if body.hq_city is None else body.hq_city,
+        hq_state=_UNSET if body.hq_state is None else body.hq_state,
+        sector=_UNSET if body.sector is None else body.sector,
+        industry=_UNSET if body.industry is None else body.industry,
+        description=_UNSET if body.description is None else body.description,
+        founded_year=_UNSET if body.founded_year is None else body.founded_year,
+        company_size=_UNSET if body.company_size is None else body.company_size,
     )
     if not company:
         raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")

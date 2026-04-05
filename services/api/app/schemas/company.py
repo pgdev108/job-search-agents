@@ -47,10 +47,18 @@ class CompanyListOut(BaseModel):
 
 
 class CompanyUpdateRequest(BaseModel):
-    """Request body for PATCH /companies/{ticker}."""
+    """Request body for PATCH /companies/{id}."""
     career_page_url: Optional[str] = None  # set to "" to clear
     not_interested: Optional[bool] = None
-    company_tags: Optional[str] = None  # comma-separated tag names, set to "" to clear
+    company_tags: Optional[str] = None     # comma-separated tag names, set to "" to clear
+    website: Optional[str] = None          # set to "" to clear
+    hq_city: Optional[str] = None
+    hq_state: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    description: Optional[str] = None
+    founded_year: Optional[int] = None
+    company_size: Optional[str] = None
 
 
 class CityCountOut(BaseModel):

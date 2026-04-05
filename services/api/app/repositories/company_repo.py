@@ -272,14 +272,32 @@ async def get_company_by_id(session: AsyncSession, company_id: int) -> Company |
     return result.scalar_one_or_none()
 
 
+def _extract_domain(website: str) -> str | None:
+    """Strip scheme, www, and path to get bare domain."""
+    if not website:
+        return None
+    w = website.strip().lower()
+    w = w.replace("https://", "").replace("http://", "")
+    w = w.lstrip("www.")
+    return w.split("/")[0] or None
+
+
 async def update_company_by_id(
     session: AsyncSession,
     company_id: int,
     career_page_url: object = _UNSET,
     not_interested: bool | None = None,
     company_tags: object = _UNSET,
+    website: object = _UNSET,
+    hq_city: object = _UNSET,
+    hq_state: object = _UNSET,
+    sector: object = _UNSET,
+    industry: object = _UNSET,
+    description: object = _UNSET,
+    founded_year: object = _UNSET,
+    company_size: object = _UNSET,
 ) -> Company | None:
-    """Partial update for a company identified by its numeric ID (for private companies without ticker)."""
+    """Partial update for a company by numeric ID. Pass _UNSET to leave a field unchanged."""
     company = await get_company_by_id(session, company_id)
     if not company:
         return None
@@ -294,6 +312,28 @@ async def update_company_by_id(
             company.career_page_source = None
     if company_tags is not _UNSET:
         company.company_tags = (company_tags.strip() or None) if company_tags else None
+    if website is not _UNSET:
+        if website:
+            w = website.strip()
+            company.website = w if w.startswith("http") else f"https://{w}"
+            company.domain = _extract_domain(w)
+        else:
+            company.website = None
+            company.domain = None
+    if hq_city is not _UNSET:
+        company.hq_city = hq_city.strip() or None if hq_city else None
+    if hq_state is not _UNSET:
+        company.hq_state = hq_state.strip().upper() or None if hq_state else None
+    if sector is not _UNSET:
+        company.sector = sector.strip() or None if sector else None
+    if industry is not _UNSET:
+        company.industry = industry.strip() or None if industry else None
+    if description is not _UNSET:
+        company.description = description.strip() or None if description else None
+    if founded_year is not _UNSET:
+        company.founded_year = founded_year
+    if company_size is not _UNSET:
+        company.company_size = company_size.strip() or None if company_size else None
     company.updated_at = datetime.now(timezone.utc).isoformat()
     await session.commit()
     await session.refresh(company)

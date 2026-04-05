@@ -8,7 +8,8 @@
       "Bash(sqlite3 data/app.db \"SELECT COUNT\\(*\\) FROM bay_area_companies;\")",
       "Bash(uv run python -c ':*)",
       "Bash(sqlite3 data/app.db ':*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(uv add:*)"
     ],
     "additionalDirectories": [
       "/Users/pankaj/Pankaj/personal/Job Search"
