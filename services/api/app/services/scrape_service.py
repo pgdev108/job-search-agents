@@ -59,33 +59,25 @@ async def _run_discovery(company: Company) -> CareerDiscoveryResult:
 
 
 
-async def scrape_company_by_ticker(
-    ticker: str,
+async def _scrape_company(
+    company: Company,
     db: AsyncSession,
     run_id: int | None = None,
-) -> CompanyScrapeResponse | None:
-    """
-    Run career discovery + job count for one company by ticker.
-    Returns None if company not found (caller should 404).
-    If run_id is set, events are linked and company.last_run_id is updated.
-    """
-    company = await company_repo.get_company_by_ticker(db, ticker)
-    if not company:
-        return None
-
+) -> CompanyScrapeResponse:
+    """Core career discovery logic, shared by ticker-based and ID-based entry points."""
     if run_id is not None:
         company.last_run_id = run_id
 
-    discovery: CareerDiscoveryResult | None = None
-    job_count_result: JobCountResult | None = None
-    career_url: str | None = None
-
-    def payload_with_ticker(p: dict) -> dict:
+    def payload_base(p: dict) -> dict:
         d = dict(p)
-        d.setdefault("ticker", company.ticker)
+        d.setdefault("company_id", company.id)
+        if company.ticker:
+            d.setdefault("ticker", company.ticker)
         return d
 
-    # --- Career discovery ---
+    discovery: CareerDiscoveryResult | None = None
+    career_url: str | None = None
+
     try:
         discovery = await _run_discovery(company)
         career_url = str(discovery.career_page_url)
@@ -93,7 +85,7 @@ async def scrape_company_by_ticker(
             db,
             company.id,
             "discover_career_page",
-            payload_with_ticker({
+            payload_base({
                 "career_page_url": career_url,
                 "confidence": discovery.confidence,
                 "alternate_urls": [str(u) for u in discovery.alternate_urls],
@@ -107,7 +99,7 @@ async def scrape_company_by_ticker(
     except Exception as e:
         await _log_event(
             db, company.id, "error",
-            payload_with_ticker({"stage": "discover_career_page", "error": str(e), "step": "discover"}),
+            payload_base({"stage": "discover_career_page", "error": str(e), "step": "discover"}),
             run_id=run_id,
         )
         company.last_scrape_status = "failed"
@@ -120,7 +112,6 @@ async def scrape_company_by_ticker(
             job_count=None,
         )
 
-    # Persist discovery (career URL + HQ from agent)
     company.career_page_url = career_url
     company.career_page_source = "openai_agent"
     if discovery.hq_city or discovery.hq_state:
@@ -128,36 +119,49 @@ async def scrape_company_by_ticker(
         company.hq_state = (discovery.hq_state or "").strip() or None
         parts = [p for p in (company.hq_city, company.hq_state) if p]
         company.hq_location = ", ".join(parts) if parts else None
+
     if discovery.confidence < 0.5 and not career_url:
         company.last_scrape_status = "failed"
         company.last_scrape_error = "Low confidence and no URL"
         company.last_scraped_at = _now_iso()
         await db.commit()
-        return CompanyScrapeResponse(
-            company=CompanyOut.model_validate(company),
-            discovery=discovery,
-            job_count=None,
-        )
+        return CompanyScrapeResponse(company=CompanyOut.model_validate(company), discovery=discovery, job_count=None)
 
     if not career_url:
         company.last_scrape_status = "failed"
         company.last_scrape_error = "No career URL returned"
         company.last_scraped_at = _now_iso()
         await db.commit()
-        return CompanyScrapeResponse(
-            company=CompanyOut.model_validate(company),
-            discovery=discovery,
-            job_count=None,
-        )
+        return CompanyScrapeResponse(company=CompanyOut.model_validate(company), discovery=discovery, job_count=None)
 
     company.last_scraped_at = _now_iso()
     company.last_scrape_status = "success"
     company.last_scrape_error = None
     await db.commit()
     await db.refresh(company)
+    return CompanyScrapeResponse(company=CompanyOut.model_validate(company), discovery=discovery, job_count=None)
 
-    return CompanyScrapeResponse(
-        company=CompanyOut.model_validate(company),
-        discovery=discovery,
-        job_count=None,
-    )
+
+async def scrape_company_by_id(
+    company_id: int,
+    db: AsyncSession,
+    run_id: int | None = None,
+) -> CompanyScrapeResponse | None:
+    """Run career discovery for one company by its numeric ID (supports private companies)."""
+    from app.repositories.company_repo import get_company_by_id
+    company = await get_company_by_id(db, company_id)
+    if not company:
+        return None
+    return await _scrape_company(company, db, run_id=run_id)
+
+
+async def scrape_company_by_ticker(
+    ticker: str,
+    db: AsyncSession,
+    run_id: int | None = None,
+) -> CompanyScrapeResponse | None:
+    """Run career discovery for one company by ticker. Returns None if not found."""
+    company = await company_repo.get_company_by_ticker(db, ticker)
+    if not company:
+        return None
+    return await _scrape_company(company, db, run_id=run_id)

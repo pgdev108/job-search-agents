@@ -442,6 +442,8 @@ export interface ScrapeAllParams {
   tickers?: string[];
   /** If true, only scrape companies whose last scrape was not success. */
   failed_only?: boolean;
+  /** If set, scrape all companies with this tag (supports private companies without tickers). */
+  tag?: string;
 }
 
 /**

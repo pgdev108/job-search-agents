@@ -148,6 +148,29 @@ async def list_companies(
     return [(row.Company, row.applications_count) for row in result.all()], total
 
 
+async def get_company_ids_by_tag(
+    session: AsyncSession,
+    tag: str,
+    limit: int = 6000,
+) -> list[int]:
+    """
+    Get IDs of companies with the given tag that are eligible for career page scraping:
+    not marked not_interested, no career_page_url set yet.
+    """
+    query = (
+        select(Company.id)
+        .where(
+            _tag_contains_like(tag),
+            Company.not_interested == False,  # noqa: E712
+            Company.career_page_url.is_(None),
+        )
+        .order_by(Company.id)
+        .limit(limit)
+    )
+    result = await session.execute(query)
+    return [row[0] for row in result.all()]
+
+
 async def get_tickers_for_bulk(
     session: AsyncSession,
     universe: str | None = None,

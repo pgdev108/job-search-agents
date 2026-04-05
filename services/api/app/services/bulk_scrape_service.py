@@ -11,7 +11,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.scrape_run import ScrapeRun
 from app.repositories import company_repo
 from app.schemas.scrape import ScrapeRunOut
-from app.services.scrape_service import scrape_company_by_ticker
+from app.services.scrape_service import scrape_company_by_ticker, scrape_company_by_id
 
 # SQLite allows only one writer at a time. Serialize all DB writes during bulk run to avoid "database is locked".
 _db_write_lock = asyncio.Lock()
@@ -110,6 +110,33 @@ async def _process_one_ticker(
                         await _update_run_counts(sess2, run_id, "failed", str(e)[:1000])
 
 
+async def _process_one_id(
+    company_id: int,
+    run_id: int,
+    semaphore: asyncio.Semaphore,
+    cancel_event: asyncio.Event,
+) -> None:
+    """Process a single company by ID; update run counters."""
+    if cancel_event.is_set():
+        return
+    async with semaphore:
+        await asyncio.sleep(random.uniform(0, 0.2))
+        async with _db_write_lock:
+            async with AsyncSessionLocal() as session:
+                try:
+                    result = await scrape_company_by_id(company_id, session, run_id=run_id)
+                    if result is None:
+                        await _update_run_counts(session, run_id, "failed", "Company not found")
+                        return
+                    status = result.company.last_scrape_status or "failed"
+                    err = result.company.last_scrape_error
+                    await _update_run_counts(session, run_id, status, err)
+                except Exception as e:
+                    await session.rollback()
+                    async with AsyncSessionLocal() as sess2:
+                        await _update_run_counts(sess2, run_id, "failed", str(e)[:1000])
+
+
 async def _run_bulk_background(run_id: int, tickers: list[str]) -> None:
     """Background task: process all tickers with concurrency limit."""
     cancel_event = asyncio.Event()
@@ -125,11 +152,27 @@ async def _run_bulk_background(run_id: int, tickers: list[str]) -> None:
             await _finish_run(session, run_id, cancelled=cancelled)
 
 
+async def _run_bulk_background_by_ids(run_id: int, company_ids: list[int]) -> None:
+    """Background task: process all company IDs with concurrency limit."""
+    cancel_event = asyncio.Event()
+    _cancel_events[run_id] = cancel_event
+    concurrency = max(1, min(settings.bulk_scrape_concurrency, 32))
+    semaphore = asyncio.Semaphore(concurrency)
+    try:
+        await asyncio.gather(*[_process_one_id(cid, run_id, semaphore, cancel_event) for cid in company_ids])
+    finally:
+        cancelled = cancel_event.is_set()
+        _cancel_events.pop(run_id, None)
+        async with AsyncSessionLocal() as session:
+            await _finish_run(session, run_id, cancelled=cancelled)
+
+
 async def start_bulk_scrape(
     db: AsyncSession,
     universe: str | None = None,
     tickers: list[str] | None = None,
     failed_only: bool = False,
+    tag: str | None = None,
 ) -> ScrapeRunOut:
     """
     Create a scrape_run, select target tickers, kick off background task, return run summary.
@@ -138,6 +181,31 @@ async def start_bulk_scrape(
     """
     if await _has_running_run(db):
         raise ValueError("Bulk scrape already running")
+
+    # Tag-based scrape: fetch company IDs (works for private companies too)
+    if tag:
+        company_ids = await company_repo.get_company_ids_by_tag(
+            session=db, tag=tag, limit=settings.bulk_scrape_max_companies
+        )
+        if not company_ids:
+            raise ValueError(f"No eligible companies found for tag '{tag}' (all may already have career URLs)")
+        run = ScrapeRun(
+            started_at=_now_iso(),
+            finished_at=None,
+            status="running",
+            universe=f"tag:{tag}",
+            total_companies=len(company_ids),
+            success_count=0,
+            failed_count=0,
+            blocked_count=0,
+            not_found_count=0,
+            last_error=None,
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        asyncio.create_task(_run_bulk_background_by_ids(run.id, company_ids))
+        return ScrapeRunOut.model_validate(run)
 
     universe = universe or None
     if failed_only:

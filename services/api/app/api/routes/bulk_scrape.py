@@ -32,23 +32,15 @@ async def scrape_all(
         settings.require_openai_key()
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
-    if body.failed_only:
-        universe = body.universe or None
-        try:
-            return await start_bulk_scrape(db, universe=universe, failed_only=True)
-        except ValueError as e:
-            if "already running" in str(e).lower():
-                raise HTTPException(status_code=409, detail="Bulk scrape already running")
-            raise HTTPException(status_code=400, detail=str(e))
-    # When tickers provided, use only those (universe for display can be null). Else use universe filter.
-    if body.tickers:
-        universe = body.universe or None
-        tickers = body.tickers
-    else:
-        universe = body.universe or settings.bulk_scrape_universe_default
-        tickers = None
     try:
-        return await start_bulk_scrape(db, universe=universe, tickers=tickers)
+        if body.tag:
+            return await start_bulk_scrape(db, tag=body.tag)
+        elif body.failed_only:
+            return await start_bulk_scrape(db, universe=body.universe or None, failed_only=True)
+        elif body.tickers:
+            return await start_bulk_scrape(db, universe=body.universe or None, tickers=body.tickers)
+        else:
+            return await start_bulk_scrape(db, universe=body.universe or settings.bulk_scrape_universe_default)
     except ValueError as e:
         if "already running" in str(e).lower():
             raise HTTPException(status_code=409, detail="Bulk scrape already running")

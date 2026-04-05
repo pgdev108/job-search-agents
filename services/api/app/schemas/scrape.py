@@ -63,4 +63,5 @@ class ScrapeAllRequest(BaseModel):
     universe: str | None = None
     tickers: list[str] | None = None
     failed_only: bool = False  # if True, only scrape companies where last_scrape_status != 'success'
+    tag: str | None = None     # if set, scrape all companies with this tag (supports private companies)
     page_size: int | None = None  # ignored, for UI

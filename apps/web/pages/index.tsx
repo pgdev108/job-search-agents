@@ -440,6 +440,23 @@ export default function Home() {
     }
   }
 
+  const handleScrapeByTag = async () => {
+    if (!selectedTag) return
+    if (!confirm(`Scrape career pages for all "${selectedTag}" companies without a career URL? This may take a while.`)) return
+    setBulkRunning(true)
+    setBulkRunId(null)
+    setError(null)
+    try {
+      const run = await postScrapeAll({ tag: selectedTag })
+      setBulkRunId(run.id)
+      setBulkRunProgress({ ...run, processed: 0, remaining: run.total_companies, percent_complete: 0 })
+      setRuns((prev) => [run, ...prev.slice(0, 4)])
+    } catch (err) {
+      setBulkRunning(false)
+      setError(err instanceof Error ? err.message : 'Scrape by tag failed')
+    }
+  }
+
   const handleRefreshFailed = async () => {
     const universe = selectedUniverse || undefined
     const universeLabel = universe ?? 'All Universes'
@@ -807,24 +824,46 @@ export default function Home() {
           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
             Tag
           </label>
-          <select
-            value={selectedTag}
-            onChange={(e) => { setSelectedTag(e.target.value); setPage(1) }}
-            style={{
-              width: '100%',
-              padding: '0.5rem',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              fontSize: '1rem'
-            }}
-          >
-            <option value="">All Tags</option>
-            {allTags.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <select
+              value={selectedTag}
+              onChange={(e) => { setSelectedTag(e.target.value); setPage(1) }}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                fontSize: '1rem'
+              }}
+            >
+              <option value="">All Tags</option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+            {selectedTag && (
+              <button
+                onClick={handleScrapeByTag}
+                disabled={bulkRunning}
+                title={`Scrape career pages for all "${selectedTag}" companies`}
+                style={{
+                  padding: '0.5rem 0.6rem',
+                  backgroundColor: bulkRunning ? '#ccc' : '#7c3aed',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: bulkRunning ? 'not-allowed' : 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🔍 Scrape
+              </button>
+            )}
+          </div>
         </div>
 
         <div style={{ minWidth: '180px' }}>
@@ -961,6 +1000,7 @@ export default function Home() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Universe</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ City</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>HQ State</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Website</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Career Page</th>
                   <th style={{ padding: '0.75rem', textAlign: 'right', border: '1px solid #ddd' }}>Jobs Applied</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', border: '1px solid #ddd' }}>Last Scrape Status</th>
@@ -972,7 +1012,7 @@ export default function Home() {
               <tbody>
                 {companies.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                    <td colSpan={11} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
                       No companies found
                     </td>
                   </tr>
@@ -1000,6 +1040,13 @@ export default function Home() {
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {company.hq_state ?? '-'}
+                      </td>
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
+                        {company.website ? (
+                          <a href={company.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>
+                            {company.domain ?? company.website}
+                          </a>
+                        ) : '-'}
                       </td>
                       <td style={{ padding: '0.75rem', border: '1px solid #ddd' }}>
                         {company.career_page_url ? (
