@@ -56,6 +56,7 @@ async def list_companies(
     city: str | None = None,
     tag: str | None = None,
     interested_only: bool = True,
+    unreviewed_only: bool = False,
     has_applications: str | None = None,
     sort: str = "name_asc",
     page: int = 1,
@@ -107,6 +108,9 @@ async def list_companies(
 
     if interested_only:
         conditions.append(Company.not_interested == False)  # noqa: E712
+
+    if unreviewed_only:
+        conditions.append(Company.career_reviewed == False)  # noqa: E712
 
     # Application count subquery
     app_count_subq = (
@@ -287,6 +291,7 @@ async def update_company_by_id(
     company_id: int,
     career_page_url: object = _UNSET,
     not_interested: bool | None = None,
+    career_reviewed: bool | None = None,
     company_tags: object = _UNSET,
     website: object = _UNSET,
     hq_city: object = _UNSET,
@@ -303,6 +308,8 @@ async def update_company_by_id(
         return None
     if not_interested is not None:
         company.not_interested = not_interested
+    if career_reviewed is not None:
+        company.career_reviewed = career_reviewed
     if career_page_url is not _UNSET:
         if career_page_url:
             company.career_page_url = career_page_url.strip()

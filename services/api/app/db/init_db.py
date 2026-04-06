@@ -73,6 +73,15 @@ async def migrate_company_enrichment_columns():
             pass
 
 
+async def migrate_career_reviewed_column():
+    """Add career_reviewed column to companies if missing."""
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text("ALTER TABLE companies ADD COLUMN career_reviewed INTEGER NOT NULL DEFAULT 0"))
+        except Exception:
+            pass
+
+
 async def seed_tags():
     """Ensure default tags exist in the tags table."""
     from app.models.tag import Tag
@@ -221,6 +230,7 @@ async def init_db():
     await migrate_scrape_run_columns()
     await migrate_not_interested_column()
     await migrate_company_enrichment_columns()
+    await migrate_career_reviewed_column()
 
     # Seed reference data
     await seed_tags()

@@ -7,6 +7,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8
 export interface CompanyUpdateParams {
   career_page_url?: string;  // set to "" to clear
   not_interested?: boolean;
+  career_reviewed?: boolean;
   company_tags?: string;     // comma-separated tag names, set to "" to clear
   website?: string;          // set to "" to clear
   hq_city?: string;
@@ -36,6 +37,7 @@ export interface Company {
   last_scrape_status: string | null;
   last_scrape_error: string | null;
   not_interested: boolean;
+  career_reviewed: boolean;
   applications_count: number;
   universe: string;
   description: string | null;
@@ -63,6 +65,7 @@ export interface CompanyListParams {
   city?: string;
   tag?: string;
   interested_only?: boolean;
+  unreviewed_only?: boolean;
   has_applications?: 'yes' | 'no';
   sort?: 'name_asc' | 'job_count_desc' | 'last_scraped_at_desc';
   page?: number;
@@ -179,6 +182,9 @@ export async function getCompanies(params: CompanyListParams = {}): Promise<Comp
   }
   if (params.interested_only !== undefined) {
     searchParams.append('interested_only', params.interested_only.toString());
+  }
+  if (params.unreviewed_only) {
+    searchParams.append('unreviewed_only', 'true');
   }
   if (params.has_applications) {
     searchParams.append('has_applications', params.has_applications);

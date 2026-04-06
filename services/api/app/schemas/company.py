@@ -22,6 +22,7 @@ class CompanyOut(BaseModel):
     last_scrape_status: Optional[str] = None
     last_scrape_error: Optional[str] = None
     not_interested: bool = False
+    career_reviewed: bool = False
     applications_count: int = 0
     universe: str
     description: Optional[str] = None
@@ -50,6 +51,7 @@ class CompanyUpdateRequest(BaseModel):
     """Request body for PATCH /companies/{id}."""
     career_page_url: Optional[str] = None  # set to "" to clear
     not_interested: Optional[bool] = None
+    career_reviewed: Optional[bool] = None
     company_tags: Optional[str] = None     # comma-separated tag names, set to "" to clear
     website: Optional[str] = None          # set to "" to clear
     hq_city: Optional[str] = None

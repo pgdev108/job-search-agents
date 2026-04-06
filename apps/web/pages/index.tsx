@@ -9,12 +9,9 @@ import {
   getLastScrapeStatuses,
   getStates,
   getCitiesByState,
-  seedIndex,
   postScrapeCompany,
   postScrapeAll,
-  getScrapeRuns,
   getScrapeRun,
-  getScrapeStatusCounts,
   cancelScrapeRun,
   patchCompanyById,
   createApplication,
@@ -22,7 +19,6 @@ import {
   getTags,
   Company,
   CompanyListParams,
-  ScrapeRun,
   ScrapeRunDetail,
 } from '../lib/api';
 
@@ -229,19 +225,11 @@ export default function Home() {
   const [cities, setCities] = useState<{ city: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seedMessage, setSeedMessage] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState<
-    'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000' | null
-  >(null);
   const [refreshingTicker, setRefreshingTicker] = useState<string | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkRunId, setBulkRunId] = useState<number | null>(null);
   const [bulkRunProgress, setBulkRunProgress] =
     useState<ScrapeRunDetail | null>(null);
-  const [runs, setRuns] = useState<ScrapeRun[]>([]);
-  const [scrapeStatusCounts, setScrapeStatusCounts] = useState<
-    Record<string, number>
-  >({});
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [editCareerUrl, setEditCareerUrl] = useState('');
   const [editNotInterested, setEditNotInterested] = useState(false);
@@ -285,6 +273,7 @@ export default function Home() {
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [interestedOnly, setInterestedOnly] = useState(true);
+  const [unreviewedOnly, setUnreviewedOnly] = useState(false);
   const [hasApplications, setHasApplications] = useState<'yes' | 'no' | ''>('');
   const [sort, setSort] = useState<CompanyListParams['sort']>('name_asc');
   const [page, setPage] = useState(1);
@@ -317,8 +306,6 @@ export default function Home() {
           universesData,
           statusesData,
           statesData,
-          runsData,
-          countsData,
           appStatusesData,
           tagsData,
         ] = await Promise.all([
@@ -326,8 +313,6 @@ export default function Home() {
           getUniverses(),
           getLastScrapeStatuses().catch(() => []),
           getStates().catch(() => []),
-          getScrapeRuns({ page_size: 5 }).catch(() => []),
-          getScrapeStatusCounts().catch(() => ({})),
           getApplicationStatuses().catch(() => [
             'Applied',
             'Phone Screen',
@@ -342,8 +327,6 @@ export default function Home() {
         setUniverses(universesData);
         setLastScrapeStatuses(statusesData);
         setStates(statesData);
-        setRuns(runsData);
-        setScrapeStatusCounts(countsData);
         setApplicationStatuses(appStatusesData);
         setAllTags(tagsData);
       } catch (err) {
@@ -353,7 +336,7 @@ export default function Home() {
     loadFilters();
   }, []);
 
-  // Poll running bulk run progress (every 4s) and refresh runs list when done
+  // Poll running bulk run progress (every 4s)
   useEffect(() => {
     if (bulkRunId == null) return;
     const t = setInterval(async () => {
@@ -364,8 +347,6 @@ export default function Home() {
           setBulkRunning(false);
           setBulkRunId(null);
           setBulkRunProgress(null);
-          const runsData = await getScrapeRuns({ page_size: 5 });
-          setRuns(runsData);
         }
       } catch {
         setBulkRunId(null);
@@ -416,7 +397,8 @@ export default function Home() {
         if (selectedCity) {
           params.city = selectedCity;
         }
-        params.interested_only = interestedOnly;
+        params.interested_only = interestedOnly
+        if (unreviewedOnly) params.unreviewed_only = true;
         if (hasApplications) params.has_applications = hasApplications;
         if (selectedTag) params.tag = selectedTag;
 
@@ -444,6 +426,7 @@ export default function Home() {
     selectedCity,
     selectedTag,
     interestedOnly,
+    unreviewedOnly,
     hasApplications,
     sort,
     page,
@@ -489,57 +472,6 @@ export default function Home() {
     setPage(1);
   };
 
-  const seedLabels: Record<
-    'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000',
-    string
-  > = {
-    sp500: 'S&P 500',
-    dow_jones: 'Dow Jones',
-    nasdaq100: 'Nasdaq 100',
-    russell2000: 'Russell 2000',
-  };
-
-  const handleSeed = async (
-    source: 'sp500' | 'dow_jones' | 'nasdaq100' | 'russell2000',
-  ) => {
-    setSeeding(source);
-    setSeedMessage(null);
-    setError(null);
-    const label = seedLabels[source];
-    try {
-      const result = await seedIndex(source);
-      setSeedMessage(
-        `${label} seeded successfully! Inserted: ${result.inserted}, Updated: ${result.updated}, Total: ${result.total}`,
-      );
-      const [universesData] = await Promise.all([
-        getUniverses(),
-        getCompanies({
-          page,
-          page_size: pageSize,
-          sort,
-          ...(search && { search }),
-          ...(selectedSector && { sector: selectedSector }),
-          ...(selectedUniverse && { universe: selectedUniverse }),
-          ...(selectedLastScrapeStatus && {
-            last_scrape_status: selectedLastScrapeStatus,
-          }),
-          ...(selectedState && { state: selectedState }),
-          ...(selectedCity && { city: selectedCity }),
-        }).then((data) => {
-          setCompanies(data.items);
-          setTotalPages(data.total_pages);
-          setTotal(data.total);
-        }),
-      ]);
-      setUniverses(universesData);
-      setTimeout(() => setSeedMessage(null), 5000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to seed ${label}`);
-    } finally {
-      setSeeding(null);
-    }
-  };
-
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Never';
     try {
@@ -549,24 +481,6 @@ export default function Home() {
     }
   };
 
-  const getStatusBadge = (company: Company) => {
-    if (!company.last_scrape_status) {
-      return <span style={{ color: '#666' }}>Not scraped</span>;
-    }
-    if (company.last_scrape_status === 'success') {
-      return <span style={{ color: 'green', fontWeight: 600 }}>✓ Success</span>;
-    }
-    if (company.last_scrape_status === 'failed') {
-      return <span style={{ color: '#c00', fontWeight: 600 }}>✗ Failed</span>;
-    }
-    if (company.last_scrape_status === 'blocked') {
-      return <span style={{ color: '#b8860b', fontWeight: 600 }}>Blocked</span>;
-    }
-    if (company.last_scrape_status === 'not_found') {
-      return <span style={{ color: '#666', fontWeight: 600 }}>Not found</span>;
-    }
-    return <span style={{ color: '#666' }}>{company.last_scrape_status}</span>;
-  };
 
   const handleRefresh = async (ticker: string) => {
     setRefreshingTicker(ticker);
@@ -580,33 +494,6 @@ export default function Home() {
       alert(err instanceof Error ? err.message : 'Refresh failed');
     } finally {
       setRefreshingTicker(null);
-    }
-  };
-
-  const handleRefreshAll = async () => {
-    const universe = selectedUniverse || 'sp500';
-    if (
-      !confirm(
-        `Start bulk refresh for universe "${universe}"? This may take a while.`,
-      )
-    )
-      return;
-    setBulkRunning(true);
-    setBulkRunId(null);
-    setError(null);
-    try {
-      const run = await postScrapeAll({ universe });
-      setBulkRunId(run.id);
-      setBulkRunProgress({
-        ...run,
-        processed: 0,
-        remaining: run.total_companies,
-        percent_complete: 0,
-      });
-      setRuns((prev) => [run, ...prev.slice(0, 4)]);
-    } catch (err) {
-      setBulkRunning(false);
-      setError(err instanceof Error ? err.message : 'Bulk scrape failed');
     }
   };
 
@@ -630,27 +517,6 @@ export default function Home() {
         remaining: run.total_companies,
         percent_complete: 0,
       });
-      setRuns((prev) => [run, ...prev.slice(0, 4)]);
-    } catch (err) {
-      setBulkRunning(false);
-      setError(err instanceof Error ? err.message : 'Scrape by tag failed');
-    }
-  };
-
-  const handleRefreshFailed = async () => {
-    const universe = selectedUniverse || undefined;
-    const universeLabel = universe ?? 'All Universes';
-    if (
-      !confirm(
-        `Refresh only failed/non-success companies for "${universeLabel}"? This may take a while.`,
-      )
-    )
-      return;
-    setBulkRunning(true);
-    setBulkRunId(null);
-    setError(null);
-    try {
-      const run = await postScrapeAll({ universe, failed_only: true });
       setBulkRunId(run.id);
       setBulkRunProgress({
         ...run,
@@ -658,12 +524,9 @@ export default function Home() {
         remaining: run.total_companies,
         percent_complete: 0,
       });
-      setRuns((prev) => [run, ...prev.slice(0, 4)]);
     } catch (err) {
       setBulkRunning(false);
-      setError(
-        err instanceof Error ? err.message : 'Refresh failed scrape failed',
-      );
+      setError(err instanceof Error ? err.message : 'Scrape by tag failed');
     }
   };
 
@@ -806,61 +669,6 @@ export default function Home() {
           >
             Scrape Runs
           </Link>
-          <button
-            onClick={handleRefreshAll}
-            disabled={bulkRunning}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: bulkRunning ? '#ccc' : '#059669',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: bulkRunning ? 'not-allowed' : 'pointer',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-            }}
-          >
-            {bulkRunning ? 'Bulk running...' : 'Refresh All (Universe)'}
-          </button>
-          <button
-            onClick={handleRefreshFailed}
-            disabled={bulkRunning}
-            style={{
-              padding: '0.75rem 1rem',
-              backgroundColor: bulkRunning ? '#ccc' : '#b45309',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: bulkRunning ? 'not-allowed' : 'pointer',
-              fontSize: '0.95rem',
-              fontWeight: 'bold',
-            }}
-          >
-            Refresh Failed
-          </button>
-          {(['sp500', 'dow_jones', 'nasdaq100', 'russell2000'] as const).map(
-            (source) => (
-              <button
-                key={source}
-                onClick={() => handleSeed(source)}
-                disabled={seeding != null}
-                style={{
-                  padding: '0.75rem 1rem',
-                  backgroundColor: seeding != null ? '#ccc' : '#0066cc',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: seeding != null ? 'not-allowed' : 'pointer',
-                  fontSize: '0.95rem',
-                  fontWeight: 'bold',
-                }}
-              >
-                {seeding === source
-                  ? 'Seeding...'
-                  : `Seed ${seedLabels[source]}`}
-              </button>
-            ),
-          )}
         </div>
       </div>
 
@@ -899,8 +707,6 @@ export default function Home() {
                 setBulkRunning(false);
                 setBulkRunId(null);
                 setBulkRunProgress(null);
-                const runsData = await getScrapeRuns({ page_size: 5 });
-                setRuns(runsData);
               } catch (err) {
                 alert(err instanceof Error ? err.message : 'Cancel failed');
               }
@@ -918,22 +724,6 @@ export default function Home() {
           >
             Cancel Run
           </button>
-        </div>
-      )}
-
-      {/* Seed success message */}
-      {seedMessage && (
-        <div
-          style={{
-            padding: '1rem',
-            backgroundColor: '#dfd',
-            border: '1px solid #9c9',
-            borderRadius: '4px',
-            marginBottom: '1rem',
-            color: '#060',
-          }}
-        >
-          {seedMessage}
         </div>
       )}
 
@@ -1269,6 +1059,19 @@ export default function Home() {
           </label>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '1.5rem' }}>
+          <input
+            type="checkbox"
+            id="unreviewed-only"
+            checked={unreviewedOnly}
+            onChange={(e) => { setUnreviewedOnly(e.target.checked); setPage(1) }}
+            style={{ width: '1rem', height: '1rem', cursor: 'pointer' }}
+          />
+          <label htmlFor="unreviewed-only" style={{ fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Unreviewed Only
+          </label>
+        </div>
+
         <div style={{ minWidth: '120px' }}>
           <label
             style={{
@@ -1299,77 +1102,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Recent scrape runs */}
-      {runs.length > 0 && (
-        <div
-          style={{
-            marginBottom: '1rem',
-            padding: '0.75rem',
-            backgroundColor: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: '4px',
-          }}
-        >
-          <strong>Recent runs:</strong>{' '}
-          {runs.slice(0, 5).map((r) => (
-            <span key={r.id} style={{ marginRight: '1rem' }}>
-              <Link href={`/runs/${r.id}`} style={{ color: '#0066cc' }}>
-                #{r.id}
-              </Link>{' '}
-              {r.status} (
-              {r.success_count +
-                r.failed_count +
-                r.blocked_count +
-                r.not_found_count}
-              /{r.total_companies})
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Scrape status summary */}
-      {Object.keys(scrapeStatusCounts).length > 0 && (
-        <div
-          style={{
-            marginBottom: '1rem',
-            padding: '0.75rem',
-            backgroundColor: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: '4px',
-            display: 'flex',
-            gap: '1.25rem',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-          }}
-        >
-          <strong style={{ whiteSpace: 'nowrap' }}>Scrape status:</strong>
-          {Object.entries(scrapeStatusCounts)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([status, count]) => {
-              const colors: Record<string, string> = {
-                success: '#16a34a',
-                failed: '#dc2626',
-                blocked: '#b45309',
-                not_found: '#666',
-                never: '#888',
-              };
-              return (
-                <span
-                  key={status}
-                  style={{
-                    color: colors[status] ?? '#333',
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {status.charAt(0).toUpperCase() +
-                    status.slice(1).replace('_', ' ')}
-                  : {count.toLocaleString()}
-                </span>
-              );
-            })}
-        </div>
-      )}
 
       {/* Results count */}
       <div style={{ marginBottom: '1rem', color: '#666' }}>
@@ -1428,43 +1160,7 @@ export default function Home() {
                       border: '1px solid #ddd',
                     }}
                   >
-                    Sector
-                  </th>
-                  <th
-                    style={{
-                      padding: '0.75rem',
-                      textAlign: 'left',
-                      border: '1px solid #ddd',
-                    }}
-                  >
-                    Universe
-                  </th>
-                  <th
-                    style={{
-                      padding: '0.75rem',
-                      textAlign: 'left',
-                      border: '1px solid #ddd',
-                    }}
-                  >
-                    HQ City
-                  </th>
-                  <th
-                    style={{
-                      padding: '0.75rem',
-                      textAlign: 'left',
-                      border: '1px solid #ddd',
-                    }}
-                  >
-                    HQ State
-                  </th>
-                  <th
-                    style={{
-                      padding: '0.75rem',
-                      textAlign: 'left',
-                      border: '1px solid #ddd',
-                    }}
-                  >
-                    Website
+                    HQ
                   </th>
                   <th
                     style={{
@@ -1487,11 +1183,20 @@ export default function Home() {
                   <th
                     style={{
                       padding: '0.75rem',
-                      textAlign: 'left',
+                      textAlign: 'center',
                       border: '1px solid #ddd',
                     }}
                   >
-                    Last Scrape Status
+                    Reviewed
+                  </th>
+                  <th
+                    style={{
+                      padding: '0.75rem',
+                      textAlign: 'center',
+                      border: '1px solid #ddd',
+                    }}
+                  >
+                    Ignore?
                   </th>
                   <th
                     style={{
@@ -1505,11 +1210,20 @@ export default function Home() {
                   <th
                     style={{
                       padding: '0.75rem',
-                      textAlign: 'center',
+                      textAlign: 'left',
                       border: '1px solid #ddd',
                     }}
                   >
-                    Ignore?
+                    Sector
+                  </th>
+                  <th
+                    style={{
+                      padding: '0.75rem',
+                      textAlign: 'left',
+                      border: '1px solid #ddd',
+                    }}
+                  >
+                    Universe
                   </th>
                   <th
                     style={{
@@ -1526,7 +1240,7 @@ export default function Home() {
                 {companies.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={10}
                       style={{
                         padding: '2rem',
                         textAlign: 'center',
@@ -1542,6 +1256,7 @@ export default function Home() {
                       key={company.id}
                       style={{ borderBottom: '1px solid #ddd' }}
                     >
+                      {/* Company */}
                       <td
                         style={{ padding: '0.75rem', border: '1px solid #ddd' }}
                       >
@@ -1556,43 +1271,26 @@ export default function Home() {
                         <div style={{ fontSize: '0.875rem', color: '#666' }}>
                           {company.ticker}
                         </div>
-                      </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {company.sector || '-'}
-                      </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {company.universe || '-'}
-                      </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {company.hq_city ?? company.hq_location ?? '-'}
-                      </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {company.hq_state ?? '-'}
-                      </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {company.website ? (
-                          <a
-                            href={company.website}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            style={{ color: '#0066cc' }}
-                          >
-                            {company.domain ?? company.website}
-                          </a>
-                        ) : (
-                          '-'
+                        {company.website && (
+                          <div style={{ fontSize: '0.8rem', marginTop: '2px' }}>
+                            <a
+                              href={company.website}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              style={{ color: '#6b7280' }}
+                            >
+                              {company.domain ?? company.website}
+                            </a>
+                          </div>
                         )}
                       </td>
+                      {/* HQ (combined) */}
+                      <td
+                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
+                      >
+                        {[company.hq_city ?? company.hq_location, company.hq_state].filter(Boolean).join(', ') || '-'}
+                      </td>
+                      {/* Career Page */}
                       <td
                         style={{ padding: '0.75rem', border: '1px solid #ddd' }}
                       >
@@ -1609,6 +1307,7 @@ export default function Home() {
                           '-'
                         )}
                       </td>
+                      {/* Jobs Applied */}
                       <td
                         style={{
                           padding: '0.75rem',
@@ -1620,11 +1319,37 @@ export default function Home() {
                           ? company.applications_count
                           : '-'}
                       </td>
-                      <td
-                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
-                      >
-                        {getStatusBadge(company)}
+                      {/* Reviewed */}
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={company.career_reviewed}
+                          onChange={async (e) => {
+                            const checked = e.target.checked
+                            try {
+                              const updated = await patchCompanyById(company.id, { career_reviewed: checked })
+                              setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c))
+                            } catch { /* revert on failure */ }
+                          }}
+                          style={{ width: '1rem', height: '1rem', cursor: 'pointer', accentColor: '#059669' }}
+                        />
                       </td>
+                      {/* Ignore */}
+                      <td style={{ padding: '0.75rem', border: '1px solid #ddd', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={company.not_interested}
+                          onChange={async (e) => {
+                            const checked = e.target.checked
+                            try {
+                              const updated = await patchCompanyById(company.id, { not_interested: checked })
+                              setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c))
+                            } catch { /* revert on failure */ }
+                          }}
+                          style={{ width: '1rem', height: '1rem', cursor: 'pointer', accentColor: '#dc2626' }}
+                        />
+                      </td>
+                      {/* Tags */}
                       <td
                         style={{ padding: '0.75rem', border: '1px solid #ddd' }}
                       >
@@ -1662,16 +1387,19 @@ export default function Home() {
                               ))
                           : '-'}
                       </td>
+                      {/* Sector */}
                       <td
-                        style={{
-                          padding: '0.75rem',
-                          border: '1px solid #ddd',
-                          textAlign: 'center',
-                          fontSize: '0.9rem',
-                        }}
+                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
                       >
-                        {company.not_interested ? '✓' : ''}
+                        {company.sector || '-'}
                       </td>
+                      {/* Universe */}
+                      <td
+                        style={{ padding: '0.75rem', border: '1px solid #ddd' }}
+                      >
+                        {company.universe || '-'}
+                      </td>
+                      {/* Actions */}
                       <td
                         style={{
                           padding: '0.75rem',

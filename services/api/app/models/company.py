@@ -28,6 +28,7 @@ class Company(Base):
     last_scrape_error: Mapped[str | None] = mapped_column(String, nullable=True)
     last_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # most recent bulk run that touched this company
     not_interested: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # if True, excluded from all scrape runs
+    career_reviewed: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # if True, user has reviewed this career page
     universe: Mapped[str] = mapped_column(String, nullable=False, default="sample")
     # Enrichment fields (populated from bay_area_companies or manual entry)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
