@@ -263,6 +263,39 @@ async def update_company(
     return company
 
 
+async def create_company(
+    session: AsyncSession,
+    name: str,
+    universe: str,
+    ticker: str | None = None,
+    hq_state: str | None = None,
+    hq_city: str | None = None,
+    website: str | None = None,
+    career_page_url: str | None = None,
+) -> Company:
+    """Create a new company record."""
+    now = datetime.now(timezone.utc).isoformat()
+    domain = _extract_domain(website) if website else None
+    career_page_source = "manual" if career_page_url else None
+    company = Company(
+        name=name.strip(),
+        universe=universe.strip(),
+        ticker=ticker.strip() if ticker else None,
+        hq_state=hq_state.strip() if hq_state else None,
+        hq_city=hq_city.strip() if hq_city else None,
+        website=website.strip() if website else None,
+        domain=domain,
+        career_page_url=career_page_url.strip() if career_page_url else None,
+        career_page_source=career_page_source,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(company)
+    await session.commit()
+    await session.refresh(company)
+    return company
+
+
 async def get_company_by_ticker(session: AsyncSession, ticker: str) -> Company | None:
     """Get a single company by ticker (case-insensitive)."""
     query = select(Company).where(func.lower(Company.ticker) == ticker.strip().lower())

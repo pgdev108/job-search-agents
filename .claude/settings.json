@@ -9,7 +9,12 @@
       "Bash(uv run python -c ':*)",
       "Bash(sqlite3 data/app.db ':*)",
       "Bash(uv run:*)",
-      "Bash(uv add:*)"
+      "Bash(uv add:*)",
+      "Bash(python data/merge_tech_companies.py)",
+      "Bash(sqlite3 data/app.db \"SELECT COUNT\\(*\\) FROM job_applications; SELECT * FROM job_applications LIMIT 3;\")",
+      "Bash(curl -s \"http://localhost:8000/applications?page=1&page_size=5\")",
+      "Bash(curl -s \"http://localhost:8000/docs\")",
+      "Bash(python3 -m json.tool)"
     ],
     "additionalDirectories": [
       "/Users/pankaj/Pankaj/personal/Job Search"

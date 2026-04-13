@@ -14,6 +14,7 @@ import {
   getScrapeRun,
   cancelScrapeRun,
   patchCompanyById,
+  createCompany,
   createApplication,
   getApplicationStatuses,
   getTags,
@@ -230,6 +231,19 @@ export default function Home() {
   const [bulkRunId, setBulkRunId] = useState<number | null>(null);
   const [bulkRunProgress, setBulkRunProgress] =
     useState<ScrapeRunDetail | null>(null);
+  // Add Company modal state
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addTicker, setAddTicker] = useState('');
+  const [addUniverse, setAddUniverse] = useState('');
+  const [addHqState, setAddHqState] = useState('');
+  const [addHqCity, setAddHqCity] = useState('');
+  const [addWebsite, setAddWebsite] = useState('');
+  const [addCareerUrl, setAddCareerUrl] = useState('');
+  const [addCities, setAddCities] = useState<{ city: string; count: number }[]>([]);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [editCareerUrl, setEditCareerUrl] = useState('');
   const [editNotInterested, setEditNotInterested] = useState(false);
@@ -255,6 +269,7 @@ export default function Home() {
   const [addJobSaving, setAddJobSaving] = useState(false);
   const [addJobError, setAddJobError] = useState<string | null>(null);
   const [applicationStatuses, setApplicationStatuses] = useState<string[]>([
+    'To Be Applied',
     'Applied',
     'Phone Screen',
     'Interview',
@@ -314,6 +329,7 @@ export default function Home() {
           getLastScrapeStatuses().catch(() => []),
           getStates().catch(() => []),
           getApplicationStatuses().catch(() => [
+            'To Be Applied',
             'Applied',
             'Phone Screen',
             'Interview',
@@ -497,6 +513,57 @@ export default function Home() {
     }
   };
 
+  const handleAddCompanyOpen = () => {
+    setAddName('');
+    setAddTicker('');
+    setAddUniverse('');
+    setAddHqState('');
+    setAddHqCity('');
+    setAddWebsite('');
+    setAddCareerUrl('');
+    setAddCities([]);
+    setAddError(null);
+    setAddCompanyOpen(true);
+  };
+
+  const handleAddHqStateChange = async (state: string) => {
+    setAddHqState(state);
+    setAddHqCity('');
+    setAddCities([]);
+    if (state) {
+      try {
+        const data = await getCitiesByState(state);
+        setAddCities(data);
+      } catch { /* ignore */ }
+    }
+  };
+
+  const handleAddCompanySave = async () => {
+    if (!addName.trim()) { setAddError('Name is required.'); return; }
+    if (!addUniverse) { setAddError('Universe is required.'); return; }
+    if (!addHqState) { setAddError('HQ State is required.'); return; }
+    if (!addHqCity) { setAddError('HQ City is required.'); return; }
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const company = await createCompany({
+        name: addName.trim(),
+        universe: addUniverse,
+        ticker: addTicker.trim() || undefined,
+        hq_state: addHqState,
+        hq_city: addHqCity,
+        website: addWebsite.trim() || undefined,
+        career_page_url: addCareerUrl.trim() || undefined,
+      });
+      setCompanies((prev) => [company, ...prev]);
+      setAddCompanyOpen(false);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to save company.');
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
   const handleScrapeByTag = async () => {
     if (!selectedTag) return;
     if (
@@ -551,7 +618,7 @@ export default function Home() {
     setAddJobSaving(true);
     setAddJobError(null);
     try {
-      await createApplication(addJobCompany.ticker, {
+      await createApplication(addJobCompany.id, {
         job_url: addJobUrl.trim(),
         job_title: addJobTitle.trim() || undefined,
         applied_date: addJobDate,
@@ -659,6 +726,17 @@ export default function Home() {
             Tags
           </Link>
           <Link
+            href='/jobs'
+            style={{
+              padding: '0.75rem 1rem',
+              color: '#0066cc',
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Jobs Tracker
+          </Link>
+          <Link
             href='/runs'
             style={{
               padding: '0.75rem 1rem',
@@ -669,6 +747,21 @@ export default function Home() {
           >
             Scrape Runs
           </Link>
+          <button
+            onClick={handleAddCompanyOpen}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#0066cc',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.95rem',
+              fontWeight: 'bold',
+            }}
+          >
+            + Add Company
+          </button>
         </div>
       </div>
 
@@ -1528,6 +1621,177 @@ export default function Home() {
             ) : null}
           </div>
         </>
+      )}
+
+      {/* Add Company modal */}
+      {addCompanyOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setAddCompanyOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '2rem',
+              width: '100%',
+              maxWidth: '480px',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Add Company</h2>
+
+            {addError && (
+              <div style={{ color: '#dc2626', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                {addError}
+              </div>
+            )}
+
+            {/* Name */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                Name <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                placeholder="Company name"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Ticker */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                Ticker <span style={{ color: '#888', fontWeight: 'normal', fontSize: '0.85rem' }}>(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={addTicker}
+                onChange={(e) => setAddTicker(e.target.value.toUpperCase())}
+                placeholder="e.g. AAPL"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Universe */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                Universe <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select
+                value={addUniverse}
+                onChange={(e) => setAddUniverse(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem' }}
+              >
+                <option value="">Select universe…</option>
+                {universes.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* HQ State */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                HQ State <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select
+                value={addHqState}
+                onChange={(e) => handleAddHqStateChange(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem' }}
+              >
+                <option value="">Select state…</option>
+                {states.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* HQ City — only shown after state is selected */}
+            {addHqState && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                  HQ City <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <select
+                  value={addHqCity}
+                  onChange={(e) => setAddHqCity(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem' }}
+                >
+                  <option value="">Select city…</option>
+                  {addCities.map((c) => (
+                    <option key={c.city} value={c.city}>{c.city}</option>
+                  ))}
+                  <option value="__other__">Other (type below)</option>
+                </select>
+                {addHqCity === '__other__' && (
+                  <input
+                    type="text"
+                    placeholder="Enter city name"
+                    onChange={(e) => setAddHqCity(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem', marginTop: '0.5rem', boxSizing: 'border-box' }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Website */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                Website
+              </label>
+              <input
+                type="text"
+                value={addWebsite}
+                onChange={(e) => setAddWebsite(e.target.value)}
+                placeholder="https://example.com"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Career Page */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem' }}>
+                Career Page URL
+              </label>
+              <input
+                type="text"
+                value={addCareerUrl}
+                onChange={(e) => setAddCareerUrl(e.target.value)}
+                placeholder="https://example.com/careers"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '1rem', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setAddCompanyOpen(false)}
+                style={{ padding: '0.5rem 1.25rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: 'white', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddCompanySave}
+                disabled={addSaving}
+                style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '4px', backgroundColor: addSaving ? '#ccc' : '#0066cc', color: 'white', cursor: addSaving ? 'not-allowed' : 'pointer', fontSize: '1rem', fontWeight: 'bold' }}
+              >
+                {addSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Edit modal */}

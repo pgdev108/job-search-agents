@@ -104,6 +104,40 @@ export interface JobApplication {
   updated_at: string;
 }
 
+export interface JobApplicationWithCompany extends JobApplication {
+  company_name: string;
+  hq_city: string | null;
+  hq_state: string | null;
+}
+
+export interface JobApplicationListParams {
+  status?: string[];
+  search?: string;
+  sort?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface JobApplicationListOut {
+  items: JobApplicationWithCompany[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export async function listAllApplications(params: JobApplicationListParams = {}): Promise<JobApplicationListOut> {
+  const searchParams = new URLSearchParams();
+  if (params.status?.length) params.status.forEach((s) => searchParams.append('status', s));
+  if (params.search) searchParams.append('search', params.search);
+  if (params.sort) searchParams.append('sort', params.sort);
+  if (params.page) searchParams.append('page', String(params.page));
+  if (params.page_size) searchParams.append('page_size', String(params.page_size));
+  const response = await fetch(`${API_BASE_URL}/applications?${searchParams}`);
+  if (!response.ok) throw new Error('Failed to fetch applications');
+  return response.json();
+}
+
 export interface JobApplicationCreateParams {
   job_url: string;
   job_title?: string;
@@ -126,14 +160,14 @@ export async function getApplicationStatuses(): Promise<string[]> {
   return response.json();
 }
 
-export async function getApplications(ticker: string): Promise<JobApplication[]> {
-  const response = await fetch(`${API_BASE_URL}/companies/${encodeURIComponent(ticker)}/applications`);
+export async function getApplications(companyId: number): Promise<JobApplication[]> {
+  const response = await fetch(`${API_BASE_URL}/companies/by-id/${companyId}/applications`);
   if (!response.ok) throw new Error('Failed to fetch applications');
   return response.json();
 }
 
-export async function createApplication(ticker: string, params: JobApplicationCreateParams): Promise<JobApplication> {
-  const response = await fetch(`${API_BASE_URL}/companies/${encodeURIComponent(ticker)}/applications`, {
+export async function createApplication(companyId: number, params: JobApplicationCreateParams): Promise<JobApplication> {
+  const response = await fetch(`${API_BASE_URL}/companies/by-id/${companyId}/applications`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -145,6 +179,16 @@ export async function createApplication(ticker: string, params: JobApplicationCr
     throw new Error(message);
   }
   return response.json();
+}
+
+export async function deleteApplication(applicationId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
 }
 
 export async function updateApplication(applicationId: number, params: JobApplicationUpdateParams): Promise<JobApplication> {
@@ -364,6 +408,31 @@ export async function getCompanyById(id: number): Promise<Company> {
   if (!response.ok) {
     if (response.status === 404) throw new Error(`Company with id '${id}' not found`);
     throw new Error(`Failed to fetch company: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export interface CompanyCreateParams {
+  name: string;
+  universe: string;
+  ticker?: string;
+  hq_state?: string;
+  hq_city?: string;
+  website?: string;
+  career_page_url?: string;
+}
+
+export async function createCompany(params: CompanyCreateParams): Promise<Company> {
+  const response = await fetch(`${API_BASE_URL}/companies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
   }
   return response.json();
 }

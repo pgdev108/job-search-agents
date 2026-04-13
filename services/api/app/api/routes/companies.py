@@ -6,7 +6,7 @@ from math import ceil
 from app.db.session import get_db
 from app.repositories import company_repo
 from app.repositories.company_repo import _UNSET
-from app.schemas.company import CompanyListOut, CompanyOut, CityCountOut, CompanyUpdateRequest
+from app.schemas.company import CompanyListOut, CompanyOut, CityCountOut, CompanyUpdateRequest, CompanyCreateRequest
 
 router = APIRouter()
 
@@ -101,6 +101,25 @@ async def get_cities_by_state(
     """Get cities in the given state with company count. Only shown when state filter is selected."""
     rows = await company_repo.get_cities_by_state(db, state)
     return [CityCountOut(city=city, count=count) for city, count in rows]
+
+
+@router.post("/companies", response_model=CompanyOut, status_code=201)
+async def create_company(
+    body: CompanyCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new company."""
+    company = await company_repo.create_company(
+        session=db,
+        name=body.name,
+        universe=body.universe,
+        ticker=body.ticker or None,
+        hq_state=body.hq_state or None,
+        hq_city=body.hq_city or None,
+        website=body.website or None,
+        career_page_url=body.career_page_url or None,
+    )
+    return CompanyOut.model_validate(company)
 
 
 @router.get("/companies/{company_id}", response_model=CompanyOut)

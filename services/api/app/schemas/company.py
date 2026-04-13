@@ -63,6 +63,17 @@ class CompanyUpdateRequest(BaseModel):
     company_size: Optional[str] = None
 
 
+class CompanyCreateRequest(BaseModel):
+    """Request body for POST /companies."""
+    name: str
+    universe: str
+    ticker: Optional[str] = None
+    hq_state: Optional[str] = None
+    hq_city: Optional[str] = None
+    website: Optional[str] = None
+    career_page_url: Optional[str] = None
+
+
 class CityCountOut(BaseModel):
     """City name and company count for filter dropdown."""
     city: str
