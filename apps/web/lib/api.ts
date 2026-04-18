@@ -181,6 +181,16 @@ export async function createApplication(companyId: number, params: JobApplicatio
   return response.json();
 }
 
+export async function deleteCompany(companyId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/companies/${companyId}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try { const b = JSON.parse(text); if (b.detail) message = b.detail; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+}
+
 export async function deleteApplication(applicationId: number): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}`, { method: 'DELETE' });
   if (!response.ok) {

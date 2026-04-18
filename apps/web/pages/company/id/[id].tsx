@@ -11,6 +11,7 @@ import {
   createApplication,
   updateApplication,
   deleteApplication,
+  deleteCompany,
   getTags,
   Company,
   JobApplication,
@@ -197,6 +198,17 @@ export default function CompanyDetailPage() {
     }
   }
 
+  const handleDeleteCompany = async () => {
+    if (!company) return
+    if (!confirm(`Delete "${company.name}"? This cannot be undone.`)) return
+    try {
+      await deleteCompany(company.id)
+      router.push('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
   const handleEditOpen = () => {
     if (!company) return
     setEditCareerUrl(company.career_page_url ?? '')
@@ -326,6 +338,13 @@ export default function CompanyDetailPage() {
             style={{ padding: '0.5rem 1rem', backgroundColor: '#6b7280', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
           >
             Edit
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteCompany}
+            style={{ padding: '0.5rem 1rem', backgroundColor: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+          >
+            Delete
           </button>
         </div>
       </div>

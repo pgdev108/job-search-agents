@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from math import ceil
 
 from app.db.session import get_db
-from app.repositories import company_repo
+from app.repositories import company_repo, job_application_repo
 from app.repositories.company_repo import _UNSET
 from app.schemas.company import CompanyListOut, CompanyOut, CityCountOut, CompanyUpdateRequest, CompanyCreateRequest
 
@@ -132,6 +132,25 @@ async def get_company_by_id(
     if not company:
         raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")
     return CompanyOut.model_validate(company)
+
+
+@router.delete("/companies/{company_id}", status_code=204)
+async def delete_company(
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a company by ID. Fails with 409 if the company has job applications."""
+    company = await company_repo.get_company_by_id(db, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")
+    apps = await job_application_repo.list_applications_for_company(db, company_id)
+    if apps:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete company — it has {len(apps)} job application(s). Delete them first.",
+        )
+    await db.delete(company)
+    await db.commit()
 
 
 @router.patch("/companies/by-id/{company_id}", response_model=CompanyOut)

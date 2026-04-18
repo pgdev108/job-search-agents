@@ -1196,6 +1196,39 @@ export default function Home() {
       </div>
 
 
+      {/* Reset filters */}
+      {(searchInput || selectedSector || selectedUniverse || selectedLastScrapeStatus || selectedState || selectedCity || selectedTag || unreviewedOnly || hasApplications || !interestedOnly) && (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <button
+            onClick={() => {
+              setSearchInput('');
+              setSearch('');
+              setSelectedSector('');
+              setSelectedUniverse('');
+              setSelectedLastScrapeStatus('');
+              setSelectedState('');
+              setSelectedCity('');
+              setSelectedTag('');
+              setUnreviewedOnly(false);
+              setHasApplications('');
+              setInterestedOnly(true);
+              setPage(1);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#0066cc',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              padding: '0',
+              textDecoration: 'underline',
+            }}
+          >
+            Reset filters
+          </button>
+        </div>
+      )}
+
       {/* Results count */}
       <div style={{ marginBottom: '1rem', color: '#666' }}>
         Showing {companies.length} of {total} companies
