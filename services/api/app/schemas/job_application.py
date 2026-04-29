@@ -1,7 +1,7 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 
-APPLICATION_STATUSES = ["To Be Applied", "Applied", "Phone Screen", "Interview", "Offer", "Rejected", "Withdrawn"]
+APPLICATION_STATUSES = ["To Be Applied", "Applied", "Phone Screen", "Interview", "Offer", "Rejected", "Not Moving Forward", "Withdrawn"]
 
 
 class JobApplicationOut(BaseModel):

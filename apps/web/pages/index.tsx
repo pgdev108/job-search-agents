@@ -6,7 +6,6 @@ import {
   getCompanies,
   getSectors,
   getUniverses,
-  getLastScrapeStatuses,
   getStates,
   getCitiesByState,
   postScrapeCompany,
@@ -221,7 +220,6 @@ export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
   const [universes, setUniverses] = useState<string[]>([]);
-  const [lastScrapeStatuses, setLastScrapeStatuses] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
   const [cities, setCities] = useState<{ city: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,8 +280,6 @@ export default function Home() {
   const [search, setSearch] = useState('');
   const [selectedSector, setSelectedSector] = useState<string>('');
   const [selectedUniverse, setSelectedUniverse] = useState<string>('');
-  const [selectedLastScrapeStatus, setSelectedLastScrapeStatus] =
-    useState<string>('');
   const [selectedState, setSelectedState] = useState<string>('');
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string>('');
@@ -319,14 +315,12 @@ export default function Home() {
         const [
           sectorsData,
           universesData,
-          statusesData,
           statesData,
           appStatusesData,
           tagsData,
         ] = await Promise.all([
           getSectors(),
           getUniverses(),
-          getLastScrapeStatuses().catch(() => []),
           getStates().catch(() => []),
           getApplicationStatuses().catch(() => [
             'To Be Applied',
@@ -341,7 +335,6 @@ export default function Home() {
         ]);
         setSectors(sectorsData);
         setUniverses(universesData);
-        setLastScrapeStatuses(statusesData);
         setStates(statesData);
         setApplicationStatuses(appStatusesData);
         setAllTags(tagsData);
@@ -404,9 +397,6 @@ export default function Home() {
         if (selectedUniverse) {
           params.universe = selectedUniverse;
         }
-        if (selectedLastScrapeStatus) {
-          params.last_scrape_status = selectedLastScrapeStatus;
-        }
         if (selectedState) {
           params.state = selectedState;
         }
@@ -437,7 +427,6 @@ export default function Home() {
     search,
     selectedSector,
     selectedUniverse,
-    selectedLastScrapeStatus,
     selectedState,
     selectedCity,
     selectedTag,
@@ -461,13 +450,6 @@ export default function Home() {
 
   const handleUniverseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedUniverse(e.target.value);
-    setPage(1);
-  };
-
-  const handleLastScrapeStatusChange = (
-    e: React.ChangeEvent<HTMLSelectElement>,
-  ) => {
-    setSelectedLastScrapeStatus(e.target.value);
     setPage(1);
   };
 
@@ -915,37 +897,6 @@ export default function Home() {
           </select>
         </div>
 
-        <div style={{ minWidth: '160px' }}>
-          <label
-            style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: 'bold',
-            }}
-          >
-            Last Scrape Status
-          </label>
-          <select
-            value={selectedLastScrapeStatus}
-            onChange={handleLastScrapeStatusChange}
-            style={{
-              width: '100%',
-              padding: '0.5rem',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              fontSize: '1rem',
-            }}
-          >
-            <option value=''>All</option>
-            <option value='never'>Never</option>
-            {lastScrapeStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status.charAt(0).toUpperCase() + status.slice(1)}
-              </option>
-            ))}
-          </select>
-        </div>
-
         <div style={{ minWidth: '140px' }}>
           <label
             style={{
@@ -1197,7 +1148,7 @@ export default function Home() {
 
 
       {/* Reset filters */}
-      {(searchInput || selectedSector || selectedUniverse || selectedLastScrapeStatus || selectedState || selectedCity || selectedTag || unreviewedOnly || hasApplications || !interestedOnly) && (
+      {(searchInput || selectedSector || selectedUniverse || selectedState || selectedCity || selectedTag || unreviewedOnly || hasApplications || !interestedOnly) && (
         <div style={{ marginBottom: '0.75rem' }}>
           <button
             onClick={() => {
@@ -1205,7 +1156,6 @@ export default function Home() {
               setSearch('');
               setSelectedSector('');
               setSelectedUniverse('');
-              setSelectedLastScrapeStatus('');
               setSelectedState('');
               setSelectedCity('');
               setSelectedTag('');
