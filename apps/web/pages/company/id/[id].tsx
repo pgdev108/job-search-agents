@@ -8,6 +8,7 @@ import {
   patchCompanyById,
   getApplications,
   getApplicationStatuses,
+  getUniverses,
   createApplication,
   updateApplication,
   deleteApplication,
@@ -117,6 +118,7 @@ export default function CompanyDetailPage() {
   const [editWebsite, setEditWebsite] = useState('')
   const [editHqCity, setEditHqCity] = useState('')
   const [editHqState, setEditHqState] = useState('')
+  const [editUniverse, setEditUniverse] = useState('')
   const [editSector, setEditSector] = useState('')
   const [editIndustry, setEditIndustry] = useState('')
   const [editFoundedYear, setEditFoundedYear] = useState('')
@@ -125,6 +127,7 @@ export default function CompanyDetailPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [allTags, setAllTags] = useState<string[]>([])
+  const [allUniverses, setAllUniverses] = useState<string[]>([])
 
   // Applications
   const [applicationStatuses, setApplicationStatuses] = useState<string[]>(['To Be Applied', 'Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn'])
@@ -145,16 +148,18 @@ export default function CompanyDetailPage() {
       setLoading(true)
       setError(null)
       try {
-        const [data, statuses, apps, tags] = await Promise.all([
+        const [data, statuses, apps, tags, univs] = await Promise.all([
           getCompanyById(numId),
           getApplicationStatuses().catch(() => ['To Be Applied', 'Applied', 'Phone Screen', 'Interview', 'Offer', 'Rejected', 'Withdrawn']),
           getApplications(numId).catch(() => []),
           getTags().catch(() => []),
+          getUniverses().catch(() => []),
         ])
         setCompany(data)
         setApplicationStatuses(statuses)
         setApplications(apps)
         setAllTags(tags)
+        setAllUniverses(univs)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load company')
       } finally {
@@ -217,6 +222,7 @@ export default function CompanyDetailPage() {
     setEditWebsite(company.website ?? '')
     setEditHqCity(company.hq_city ?? '')
     setEditHqState(company.hq_state ?? '')
+    setEditUniverse(company.universe ?? '')
     setEditSector(company.sector ?? '')
     setEditIndustry(company.industry ?? '')
     setEditFoundedYear(company.founded_year ? String(company.founded_year) : '')
@@ -238,6 +244,7 @@ export default function CompanyDetailPage() {
         website: editWebsite,
         hq_city: editHqCity,
         hq_state: editHqState,
+        universe: editUniverse,
         sector: editSector,
         industry: editIndustry,
         description: editDescription,
@@ -560,6 +567,20 @@ export default function CompanyDetailPage() {
                   style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
                 />
               </div>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Universe</label>
+              <select
+                value={editUniverse}
+                onChange={(e) => setEditUniverse(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem' }}
+              >
+                <option value="">Select universe…</option>
+                {allUniverses.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem' }}>

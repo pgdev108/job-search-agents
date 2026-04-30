@@ -216,6 +216,33 @@ function TagMultiSelect({
   );
 }
 
+const FILTER_KEY = 'companiesFilterState';
+
+const FILTER_DEFAULTS = {
+  searchInput: '',
+  search: '',
+  selectedSector: '',
+  selectedUniverse: '',
+  selectedState: '',
+  selectedCity: '',
+  selectedTag: '',
+  interestedOnly: true,
+  unreviewedOnly: false,
+  hasApplications: '' as 'yes' | 'no' | '',
+  sort: 'name_asc' as CompanyListParams['sort'],
+  page: 1,
+  pageSize: 25,
+};
+
+function _loadFilters(): typeof FILTER_DEFAULTS {
+  if (typeof window === 'undefined') return FILTER_DEFAULTS;
+  try {
+    const raw = sessionStorage.getItem(FILTER_KEY);
+    if (raw) return { ...FILTER_DEFAULTS, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return FILTER_DEFAULTS;
+}
+
 export default function Home() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
@@ -246,6 +273,7 @@ export default function Home() {
   const [editCareerUrl, setEditCareerUrl] = useState('');
   const [editNotInterested, setEditNotInterested] = useState(false);
   const [editSelectedTags, setEditSelectedTags] = useState<string[]>([]);
+  const [editUniverse, setEditUniverse] = useState('');
   const [editWebsite, setEditWebsite] = useState('');
   const [editHqCity, setEditHqCity] = useState('');
   const [editHqState, setEditHqState] = useState('');
@@ -291,9 +319,28 @@ export default function Home() {
   const [pageSize, setPageSize] = useState(25);
   const [totalPages, setTotalPages] = useState(0);
   const [total, setTotal] = useState(0);
+  const [filtersRestored, setFiltersRestored] = useState(false);
 
   // Debounced search
   const [searchInput, setSearchInput] = useState('');
+
+  // Restore filter state from sessionStorage after hydration (avoids SSR mismatch)
+  useEffect(() => {
+    const saved = _loadFilters();
+    setSearchInput(saved.searchInput);
+    setSearch(saved.search);
+    setSelectedSector(saved.selectedSector);
+    setSelectedUniverse(saved.selectedUniverse);
+    setSelectedState(saved.selectedState);
+    setSelectedCity(saved.selectedCity);
+    setSelectedTag(saved.selectedTag);
+    setInterestedOnly(saved.interestedOnly);
+    setUnreviewedOnly(saved.unreviewedOnly);
+    setHasApplications(saved.hasApplications);
+    setSort(saved.sort);
+    setPageSize(saved.pageSize);
+    setFiltersRestored(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load cities when state is selected (and clear when state is cleared)
   useEffect(() => {
@@ -375,8 +422,23 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Load companies when filters change
+  // Persist filter state to sessionStorage so Back navigation restores it
   useEffect(() => {
+    if (!filtersRestored) return;
+    try {
+      sessionStorage.setItem(FILTER_KEY, JSON.stringify({
+        searchInput, search, selectedSector, selectedUniverse, selectedState,
+        selectedCity, selectedTag, interestedOnly, unreviewedOnly, hasApplications,
+        sort, page, pageSize,
+      }));
+    } catch { /* ignore */ }
+  }, [filtersRestored, searchInput, search, selectedSector, selectedUniverse, selectedState,
+      selectedCity, selectedTag, interestedOnly, unreviewedOnly, hasApplications,
+      sort, page, pageSize]);
+
+  // Load companies when filters change (wait for sessionStorage restore first)
+  useEffect(() => {
+    if (!filtersRestored) return;
     const loadCompanies = async () => {
       setLoading(true);
       setError(null);
@@ -424,6 +486,7 @@ export default function Home() {
 
     loadCompanies();
   }, [
+    filtersRestored,
     search,
     selectedSector,
     selectedUniverse,
@@ -624,6 +687,7 @@ export default function Home() {
         ? company.company_tags.split(',').map((t) => t.trim()).filter(Boolean)
         : [],
     );
+    setEditUniverse(company.universe ?? '');
     setEditWebsite(company.website ?? '');
     setEditHqCity(company.hq_city ?? '');
     setEditHqState(company.hq_state ?? '');
@@ -644,6 +708,7 @@ export default function Home() {
         career_page_url: editCareerUrl,
         not_interested: editNotInterested,
         company_tags: editSelectedTags.join(','),
+        universe: editUniverse,
         website: editWebsite,
         hq_city: editHqCity,
         hq_state: editHqState,
@@ -1163,6 +1228,7 @@ export default function Home() {
               setHasApplications('');
               setInterestedOnly(true);
               setPage(1);
+              try { sessionStorage.removeItem(FILTER_KEY); } catch { /* ignore */ }
             }}
             style={{
               background: 'none',
@@ -1904,6 +1970,20 @@ export default function Home() {
                   style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem', boxSizing: 'border-box' }}
                 />
               </div>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem' }}>Universe</label>
+              <select
+                value={editUniverse}
+                onChange={(e) => setEditUniverse(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px', fontSize: '0.95rem' }}
+              >
+                <option value="">Select universe…</option>
+                {universes.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem' }}>

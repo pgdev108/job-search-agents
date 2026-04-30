@@ -14,7 +14,8 @@
       "Bash(sqlite3 data/app.db \"SELECT COUNT\\(*\\) FROM job_applications; SELECT * FROM job_applications LIMIT 3;\")",
       "Bash(curl -s \"http://localhost:8000/applications?page=1&page_size=5\")",
       "Bash(curl -s \"http://localhost:8000/docs\")",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(npx tsc *)"
     ],
     "additionalDirectories": [
       "/Users/pankaj/Pankaj/personal/Job Search"

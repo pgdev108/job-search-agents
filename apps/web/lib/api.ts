@@ -17,6 +17,7 @@ export interface CompanyUpdateParams {
   description?: string;
   founded_year?: number;
   company_size?: string;
+  universe?: string;
 }
 
 export interface Company {

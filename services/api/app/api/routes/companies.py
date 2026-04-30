@@ -175,6 +175,7 @@ async def update_company_by_id(
         description=_UNSET if body.description is None else body.description,
         founded_year=_UNSET if body.founded_year is None else body.founded_year,
         company_size=_UNSET if body.company_size is None else body.company_size,
+        universe=_UNSET if body.universe is None else body.universe,
     )
     if not company:
         raise HTTPException(status_code=404, detail=f"Company with id '{company_id}' not found")

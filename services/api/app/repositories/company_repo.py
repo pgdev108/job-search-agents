@@ -334,6 +334,7 @@ async def update_company_by_id(
     description: object = _UNSET,
     founded_year: object = _UNSET,
     company_size: object = _UNSET,
+    universe: object = _UNSET,
 ) -> Company | None:
     """Partial update for a company by numeric ID. Pass _UNSET to leave a field unchanged."""
     company = await get_company_by_id(session, company_id)
@@ -374,6 +375,8 @@ async def update_company_by_id(
         company.founded_year = founded_year
     if company_size is not _UNSET:
         company.company_size = company_size.strip() or None if company_size else None
+    if universe is not _UNSET:
+        company.universe = universe.strip() or None if universe else None
     company.updated_at = datetime.now(timezone.utc).isoformat()
     await session.commit()
     await session.refresh(company)

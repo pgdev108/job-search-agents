@@ -61,6 +61,7 @@ class CompanyUpdateRequest(BaseModel):
     description: Optional[str] = None
     founded_year: Optional[int] = None
     company_size: Optional[str] = None
+    universe: Optional[str] = None
 
 
 class CompanyCreateRequest(BaseModel):
